@@ -1,0 +1,6 @@
+{
+  "name": "UniNotes — Scolarité",
+  "description": "UniNotes academic management platform with the Scolarité — Gestion des prestations service counter, supervisor revenue dashboard, and audit trail.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
