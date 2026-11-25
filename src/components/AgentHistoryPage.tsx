@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Banknote, RefreshCw, Search, AlertCircle } from 'lucide-react';
+import { paymentsService } from '../api/payments.service';
 import { transactionsService } from '../api/transactions.service';
 import type { ServiceTransaction } from '../types/scolarite';
 import { formatAriary, formatDateTime } from '../utils/format';
-import { PaymentStatusBadge, TransactionStatusBadge } from './StatusBadge';
+import { PaymentStatusBadge, ProductionStatusBadge, TransactionStatusBadge } from './StatusBadge';
 
 export function AgentHistoryPage() {
   const [transactions, setTransactions] = useState<ServiceTransaction[]>([]);
@@ -31,11 +32,11 @@ export function AgentHistoryPage() {
     loadMyTransactions('');
   }, []);
 
-  async function handleConfirmPayment(id: string) {
+  async function handleConfirmPayment(id: string, amount: number) {
     setBusyId(id);
     setError(null);
     try {
-      await transactionsService.confirmPayment(id);
+      await paymentsService.recordCashPayment({ transactionId: id, amountReceived: amount });
       await loadMyTransactions();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Impossible de confirmer le paiement.');
@@ -114,6 +115,7 @@ export function AgentHistoryPage() {
                   <th className="py-3 px-4 text-right">Tarif appliqué</th>
                   <th className="py-3 px-4">Date</th>
                   <th className="py-3 px-4">Statut</th>
+                  <th className="py-3 px-4">Production</th>
                   <th className="py-3 px-4 text-right">Action</th>
                 </tr>
               </thead>
@@ -145,12 +147,15 @@ export function AgentHistoryPage() {
                         <PaymentStatusBadge paymentStatus={tx.paymentStatus} />
                       </div>
                     </td>
+                    <td className="py-3 px-4">
+                      <ProductionStatusBadge status={tx.productionStatus} />
+                    </td>
                     <td className="py-3 px-4 text-right">
                       {tx.status === 'PENDING' && tx.paymentStatus === 'UNPAID' ? (
                         <button
                           type="button"
                           disabled={busyId === tx.id}
-                          onClick={() => handleConfirmPayment(tx.id)}
+                          onClick={() => handleConfirmPayment(tx.id, tx.priceAtTransaction)}
                           className="inline-flex items-center gap-1 rounded-lg bg-[#332E86] px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-[#28246b] disabled:opacity-60 whitespace-nowrap cursor-pointer"
                         >
                           <Banknote className="h-3.5 w-3.5" />

@@ -3,6 +3,9 @@ import {
   BarChart3,
   BookOpen,
   ClipboardList,
+  FlaskConical,
+  Hammer,
+  RotateCcw,
   GraduationCap,
   History,
   LogOut,
@@ -13,22 +16,25 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { authService } from './api/auth.service';
+import { authService, type DemoAccount } from './api/auth.service';
 import { apiClient } from './api/client';
 import { ActivityLogPage } from './components/ActivityLogPage';
 import { AgentHistoryPage } from './components/AgentHistoryPage';
 import { CounterInterface } from './components/CounterInterface';
 import { LoginScreen } from './components/LoginScreen';
+import { ProductionTrackingPage } from './components/ProductionTrackingPage';
 import { ServiceCatalogPage } from './components/ServiceCatalogPage';
 import { StudentsDirectoryPage } from './components/StudentsDirectoryPage';
 import { SupervisorDashboard } from './components/SupervisorDashboard';
 import { TeamManagementPage } from './components/TeamManagementPage';
 import type { User } from './types/scolarite';
+import { setDemoMode } from './utils/demo';
 
 type TabId =
   | 'dashboard'
   | 'counter'
   | 'my-history'
+  | 'production'
   | 'catalog'
   | 'audit'
   | 'students'
@@ -41,6 +47,10 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('counter');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [demoMode, setDemoModeState] = useState(false);
+  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>([]);
+  const [focusProductionId, setFocusProductionId] = useState<string | null>(null);
+  const [resettingDemo, setResettingDemo] = useState(false);
 
   useEffect(() => {
     apiClient.setUnauthorizedHandler(() => {
@@ -53,6 +63,9 @@ export default function App() {
         const status = await authService.getStatus();
         setNeedsSetup(status.needsSetup);
         setHasEnvPasscode(status.hasEnvPasscode);
+        setDemoMode(Boolean(status.demoMode));
+        setDemoModeState(Boolean(status.demoMode));
+        setDemoAccounts(status.demoAccounts ?? []);
       } catch {
         // Fallback to login screen
       } finally {
@@ -80,6 +93,30 @@ export default function App() {
     setNeedsSetup(status.needsSetup);
   }
 
+  function openProduction(productionId: string) {
+    setFocusProductionId(productionId);
+    setActiveTab('production');
+  }
+
+  async function handleResetDemo() {
+    if (!window.confirm('Réinitialiser toutes les données de démonstration ? Vous serez déconnecté(e).')) return;
+    setResettingDemo(true);
+    try {
+      await authService.resetDemo();
+    } finally {
+      setResettingDemo(false);
+      apiClient.setToken(null);
+      setUser(null);
+    }
+  }
+
+  const demoBanner = demoMode ? (
+    <div className="sticky top-0 z-40 bg-amber-400 text-amber-950 text-xs font-semibold px-4 py-1.5 flex items-center justify-center gap-2 text-center">
+      <FlaskConical className="h-3.5 w-3.5 shrink-0" />
+      MODE DÉMONSTRATION — données fictives, base séparée. Ne pas utiliser pour des opérations réelles.
+    </div>
+  ) : null;
+
   if (booting) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -93,11 +130,15 @@ export default function App() {
 
   if (!user) {
     return (
-      <LoginScreen
-        needsSetup={needsSetup}
-        hasEnvPasscode={hasEnvPasscode}
-        onAuthenticated={handleAuthenticated}
-      />
+      <>
+        {demoBanner}
+        <LoginScreen
+          needsSetup={needsSetup}
+          hasEnvPasscode={hasEnvPasscode}
+          demoAccounts={demoAccounts}
+          onAuthenticated={handleAuthenticated}
+        />
+      </>
     );
   }
 
@@ -107,6 +148,7 @@ export default function App() {
     ? [
         { id: 'dashboard', label: 'Suivi des prestations', icon: BarChart3, section: 'Scolarité' },
         { id: 'counter', label: 'Nouvelle prestation', icon: PlusCircle, section: 'Scolarité' },
+        { id: 'production', label: 'Suivi de production', icon: Hammer, section: 'Scolarité' },
         { id: 'catalog', label: 'Catalogue des tarifs', icon: Settings2, section: 'Scolarité' },
         { id: 'audit', label: 'Journal d’audit', icon: ClipboardList, section: 'Scolarité' },
         { id: 'students', label: 'Étudiants & Notes', icon: BookOpen, section: 'UniNotes' },
@@ -114,11 +156,14 @@ export default function App() {
       ]
     : [
         { id: 'counter', label: 'Nouvelle prestation', icon: PlusCircle, section: 'Guichet Scolarité' },
+        { id: 'production', label: 'Suivi de production', icon: Hammer, section: 'Guichet Scolarité' },
         { id: 'my-history', label: 'Mes opérations', icon: History, section: 'Guichet Scolarité' },
         { id: 'students', label: 'Étudiants & Notes', icon: BookOpen, section: 'UniNotes' },
       ];
 
   return (
+    <>
+    {demoBanner}
     <div className="min-h-screen bg-[#f4f6fb] flex flex-col lg:flex-row">
       {/* Mobile Header */}
       <header className="lg:hidden sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between">
@@ -179,6 +224,7 @@ export default function App() {
                 type="button"
                 onClick={() => {
                   setActiveTab(item.id);
+                  setFocusProductionId(null);
                   setMobileMenuOpen(false);
                 }}
                 className={`w-full flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors cursor-pointer whitespace-nowrap ${
@@ -203,10 +249,22 @@ export default function App() {
               <div className="text-sm font-semibold text-slate-900 truncate">{user.fullName}</div>
               <div className="text-xs text-slate-500 flex items-center gap-1">
                 <Shield className="h-3 w-3 text-[#332E86] shrink-0" />
-                <span>{isSupervisor ? 'Superviseur' : 'Agent de guichet'}</span>
+                <span>{isSupervisor ? 'Responsable scolarité' : 'Agent de guichet'}</span>
               </div>
             </div>
           </div>
+
+          {demoMode && isSupervisor && (
+            <button
+              type="button"
+              disabled={resettingDemo}
+              onClick={handleResetDemo}
+              className="w-full flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              {resettingDemo ? 'Réinitialisation...' : 'Réinitialiser la démo'}
+            </button>
+          )}
 
           <button
             type="button"
@@ -223,7 +281,10 @@ export default function App() {
       <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8">
         <div className="mx-auto max-w-7xl">
           {activeTab === 'dashboard' && isSupervisor && <SupervisorDashboard />}
-          {activeTab === 'counter' && <CounterInterface currentUser={user} />}
+          {activeTab === 'counter' && <CounterInterface currentUser={user} onOpenProduction={openProduction} />}
+          {activeTab === 'production' && (
+            <ProductionTrackingPage key={focusProductionId ?? 'list'} currentUser={user} focusProductionId={focusProductionId} />
+          )}
           {activeTab === 'my-history' && <AgentHistoryPage />}
           {activeTab === 'catalog' && isSupervisor && <ServiceCatalogPage />}
           {activeTab === 'audit' && isSupervisor && <ActivityLogPage />}
@@ -232,5 +293,6 @@ export default function App() {
         </div>
       </main>
     </div>
+    </>
   );
 }

@@ -1,15 +1,16 @@
 import { useState, type FormEvent } from 'react';
-import { GraduationCap, Lock, ShieldCheck, UserPlus, AlertCircle } from 'lucide-react';
-import { authService } from '../api/auth.service';
+import { GraduationCap, Lock, ShieldCheck, UserPlus, AlertCircle, FlaskConical } from 'lucide-react';
+import { authService, type DemoAccount } from '../api/auth.service';
 import type { User } from '../types/scolarite';
 
 interface LoginScreenProps {
   needsSetup: boolean;
   hasEnvPasscode: boolean;
+  demoAccounts?: DemoAccount[];
   onAuthenticated: (user: User) => void;
 }
 
-export function LoginScreen({ needsSetup, hasEnvPasscode, onAuthenticated }: LoginScreenProps) {
+export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onAuthenticated }: LoginScreenProps) {
   // Login state
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -26,6 +27,19 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, onAuthenticated }: Log
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function loginAs(u: string, p: string) {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const { user } = await authService.login(u, p);
+      onAuthenticated(user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Échec de connexion.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault();
@@ -302,6 +316,31 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, onAuthenticated }: Log
               >
                 {submitting ? 'Vérification...' : 'Se connecter'}
               </button>
+
+              {demoAccounts.length > 0 && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
+                    <FlaskConical className="h-4 w-4" />
+                    Comptes de démonstration (mot de passe : {demoAccounts[0].password})
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {demoAccounts.map((acc) => (
+                      <button
+                        key={acc.username}
+                        type="button"
+                        disabled={submitting}
+                        onClick={() => loginAs(acc.username, acc.password)}
+                        className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-left hover:border-[#332E86]/50 disabled:opacity-60 cursor-pointer"
+                      >
+                        <div className="text-xs font-semibold text-slate-900">
+                          {acc.role === 'SUPERVISOR' ? 'Responsable' : 'Agent guichet'}
+                        </div>
+                        <div className="text-[11px] font-mono-ref text-slate-500">{acc.username}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </form>
           )}
         </div>

@@ -1,9 +1,18 @@
 import type { User, UserRole } from '../types/scolarite';
 import { apiClient } from './client';
 
+export interface DemoAccount {
+  username: string;
+  fullName: string;
+  role: UserRole;
+  password: string;
+}
+
 export interface AuthStatusResponse {
   needsSetup: boolean;
   hasEnvPasscode: boolean;
+  demoMode?: boolean;
+  demoAccounts?: DemoAccount[];
 }
 
 export interface AuthSessionResponse {
@@ -51,6 +60,11 @@ export const authService = {
     } finally {
       apiClient.setToken(null);
     }
+  },
+
+  /** Demo mode only: wipes and re-seeds the demo database. */
+  resetDemo(): Promise<{ ok: boolean }> {
+    return apiClient.post<{ ok: boolean }>('/demo/reset');
   },
 
   getMe(): Promise<{ user: User }> {

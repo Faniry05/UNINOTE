@@ -12,6 +12,11 @@ export interface CreateTransactionPayload {
     contact?: string;
   };
   paymentConfirmed: boolean;
+  /** Cash amount the agent declares as received; validated by the server. */
+  amountReceived?: number;
+  /** Price shown to the agent; the server rejects the sale if it changed. */
+  expectedPrice?: number;
+  details?: Record<string, string>;
   notes?: string;
 }
 
@@ -40,6 +45,7 @@ export const transactionsService = {
       serviceId: filters.serviceId,
       agentId: filters.agentId,
       status: filters.status,
+      productionStatus: filters.productionStatus,
       search: filters.search,
     });
     return res.transactions;
@@ -48,13 +54,6 @@ export const transactionsService = {
   async getTransactionById(id: string): Promise<ServiceTransaction> {
     const res = await apiClient.get<{ transaction: ServiceTransaction }>(
       `/scolarite/transactions/${encodeURIComponent(id)}`
-    );
-    return res.transaction;
-  },
-
-  async confirmPayment(id: string): Promise<ServiceTransaction> {
-    const res = await apiClient.post<{ transaction: ServiceTransaction }>(
-      `/scolarite/transactions/${encodeURIComponent(id)}/confirm-payment`
     );
     return res.transaction;
   },

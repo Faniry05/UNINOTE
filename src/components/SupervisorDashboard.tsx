@@ -15,7 +15,13 @@ import {
   X,
   XCircle,
   AlertCircle,
+  FileClock,
+  Hammer,
+  PackageCheck,
+  HandHeart,
 } from 'lucide-react';
+import { getServiceFields } from '../../shared/service-forms';
+import { paymentsService } from '../api/payments.service';
 import { authService } from '../api/auth.service';
 import { catalogService } from '../api/catalog.service';
 import { salesDashboardService } from '../api/sales-dashboard.service';
@@ -23,6 +29,8 @@ import { transactionsService } from '../api/transactions.service';
 import type {
   AgentSalesBreakdown,
   DatePeriodFilter,
+  ProductionStatus,
+  ProductionSummary,
   SalesSummary,
   ServiceItem,
   ServiceSalesBreakdown,
@@ -30,7 +38,9 @@ import type {
   User,
 } from '../types/scolarite';
 import { formatAriary, formatDateTime } from '../utils/format';
-import { PaymentStatusBadge, TransactionStatusBadge } from './StatusBadge';
+import { DocumentPreview } from './DocumentPreview';
+import { PaymentStatusBadge, PRODUCTION_STATUS_LABELS, ProductionStatusBadge, TransactionStatusBadge } from './StatusBadge';
+import { TransactionTimeline } from './TransactionTimeline';
 
 export function SupervisorDashboard() {
   const [period, setPeriod] = useState<DatePeriodFilter>('month');
@@ -39,6 +49,10 @@ export function SupervisorDashboard() {
   const [serviceFilter, setServiceFilter] = useState('ALL');
   const [agentFilter, setAgentFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [productionFilter, setProductionFilter] = useState<ProductionStatus | 'ALL'>('ALL');
+  const [productionSummary, setProductionSummary] = useState<ProductionSummary | null>(null);
+  const [previewProductionId, setPreviewProductionId] = useState<string | null>(null);
+  const [historyKey, setHistoryKey] = useState(0);
   const [search, setSearch] = useState('');
 
   const [services, setServices] = useState<ServiceItem[]>([]);
@@ -98,17 +112,20 @@ export function SupervisorDashboard() {
       serviceId: serviceFilter !== 'ALL' ? serviceFilter : undefined,
       agentId: agentFilter !== 'ALL' ? agentFilter : undefined,
       status: statusFilter !== 'ALL' ? statusFilter : undefined,
+      productionStatus: productionFilter !== 'ALL' ? productionFilter : undefined,
       search: search.trim() || undefined,
     };
 
     try {
-      const [sumRes, srvRes, agRes, txRes] = await Promise.all([
+      const [sumRes, srvRes, agRes, txRes, prodRes] = await Promise.all([
         salesDashboardService.getSalesSummary(filters),
         salesDashboardService.getSalesByService(filters),
         salesDashboardService.getSalesByAgent(filters),
         transactionsService.getTransactions(filters),
+        salesDashboardService.getProductionSummary(filters),
       ]);
       setSummary(sumRes);
+      setProductionSummary(prodRes);
       setByService(srvRes);
       setByAgent(agRes);
       setTransactions(txRes);
@@ -117,7 +134,7 @@ export function SupervisorDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [period, startDate, endDate, serviceFilter, agentFilter, statusFilter, search]);
+  }, [period, startDate, endDate, serviceFilter, agentFilter, statusFilter, productionFilter, search]);
 
   useEffect(() => {
     loadDashboard();
@@ -146,7 +163,7 @@ export function SupervisorDashboard() {
     setActionBusy(true);
     setActionError(null);
     try {
-      await transactionsService.confirmPayment(tx.id);
+      await paymentsService.recordCashPayment({ transactionId: tx.id, amountReceived: tx.priceAtTransaction });
       await loadDashboard();
       if (selectedServiceDetail) {
         await openServiceDetails(selectedServiceDetail);
@@ -154,6 +171,7 @@ export function SupervisorDashboard() {
       if (inspectTx?.id === tx.id) {
         const refreshed = await transactionsService.getTransactionById(tx.id);
         setInspectTx(refreshed);
+        setHistoryKey((k) => k + 1);
       }
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Impossible de confirmer le paiement.');
@@ -282,7 +300,7 @@ export function SupervisorDashboard() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-1">
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1" htmlFor="filter-service">
               Service
@@ -335,6 +353,25 @@ export function SupervisorDashboard() {
               <option value="COMPLETED">Validées / Encaissées</option>
               <option value="PENDING">En attente de règlement</option>
               <option value="CANCELLED">Annulées</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1" htmlFor="filter-production">
+              Statut de production
+            </label>
+            <select
+              id="filter-production"
+              value={productionFilter}
+              onChange={(e) => setProductionFilter(e.target.value as ProductionStatus | 'ALL')}
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none"
+            >
+              <option value="ALL">Tous</option>
+              {(Object.keys(PRODUCTION_STATUS_LABELS) as ProductionStatus[]).map((st) => (
+                <option key={st} value={st}>
+                  {PRODUCTION_STATUS_LABELS[st]}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -416,6 +453,36 @@ export function SupervisorDashboard() {
           <div className="mt-2 text-xs text-slate-500 tabular-nums">
             Montant neutralisé : {summary ? formatAriary(summary.cancelledAmount) : '—'}
           </div>
+        </div>
+      </div>
+
+      {/* Production KPIs (click to filter the transactions below) */}
+      <div>
+        <h2 className="text-base font-bold text-slate-900 mb-3">Production documentaire</h2>
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+          {(
+            [
+              { key: 'A_PRODUIRE', value: productionSummary?.toProduce, Icon: FileClock, tone: 'text-amber-700' },
+              { key: 'EN_PRODUCTION', value: productionSummary?.inProduction, Icon: Hammer, tone: 'text-sky-700' },
+              { key: 'PRET', value: productionSummary?.ready, Icon: PackageCheck, tone: 'text-emerald-700' },
+              { key: 'REMIS', value: productionSummary?.delivered, Icon: HandHeart, tone: 'text-slate-700' },
+            ] as const
+          ).map(({ key, value, Icon, tone }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setProductionFilter(productionFilter === key ? 'ALL' : key)}
+              className={`glass-panel rounded-2xl p-4 text-left cursor-pointer transition-all hover:-translate-y-0.5 ${
+                productionFilter === key ? 'ring-2 ring-[#332E86]' : ''
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-600">Documents {PRODUCTION_STATUS_LABELS[key].toLowerCase()}</span>
+                <Icon className={`h-4 w-4 ${tone}`} />
+              </div>
+              <div className={`mt-2 text-2xl font-bold tabular-nums ${tone}`}>{value ?? '—'}</div>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -556,6 +623,7 @@ export function SupervisorDashboard() {
                   <th className="py-3 px-4">Agent</th>
                   <th className="py-3 px-4">Date</th>
                   <th className="py-3 px-4">Statut</th>
+                  <th className="py-3 px-4">Production</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -587,6 +655,9 @@ export function SupervisorDashboard() {
                         <TransactionStatusBadge status={tx.status} />
                         <PaymentStatusBadge paymentStatus={tx.paymentStatus} />
                       </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <ProductionStatusBadge status={tx.productionStatus} />
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="inline-flex items-center justify-end gap-1.5">
@@ -692,12 +763,13 @@ export function SupervisorDashboard() {
                       <th className="py-2.5 px-3">Agent</th>
                       <th className="py-2.5 px-3 text-right">Tarif appliqué</th>
                       <th className="py-2.5 px-3">Date</th>
-                      <th className="py-2.5 pl-3">Statut</th>
+                      <th className="py-2.5 px-3">Paiement</th>
+                      <th className="py-2.5 pl-3">Production</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {serviceDetailTxs.map((tx) => (
-                      <tr key={tx.id}>
+                      <tr key={tx.id} onClick={() => setInspectTx(tx)} className="cursor-pointer hover:bg-slate-50">
                         <td className="py-2.5 pr-3 font-mono-ref text-xs font-semibold text-[#332E86]">
                           {tx.reference}
                         </td>
@@ -714,8 +786,11 @@ export function SupervisorDashboard() {
                         <td className="py-2.5 px-3 text-xs text-slate-600 tabular-nums">
                           {formatDateTime(tx.createdAt)}
                         </td>
+                        <td className="py-2.5 px-3">
+                          <PaymentStatusBadge paymentStatus={tx.paymentStatus} />
+                        </td>
                         <td className="py-2.5 pl-3">
-                          <TransactionStatusBadge status={tx.status} />
+                          <ProductionStatusBadge status={tx.productionStatus} />
                         </td>
                       </tr>
                     ))}
@@ -734,7 +809,7 @@ export function SupervisorDashboard() {
           role="dialog"
           aria-modal="true"
         >
-          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl p-6 space-y-4">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white border border-slate-200 shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
                 <h3 className="text-lg font-bold text-slate-900">Détail de la transaction</h3>
@@ -793,6 +868,32 @@ export function SupervisorDashboard() {
                   </span>
                 </div>
               )}
+              {getServiceFields(inspectTx.serviceCode).map((f) =>
+                inspectTx.details?.[f.key] ? (
+                  <div key={f.key} className="flex justify-between">
+                    <span className="text-slate-500">{f.label.replace(' (optionnel)', '')}</span>
+                    <span className="text-slate-800 text-right">
+                      {f.options?.find((o) => o.value === inspectTx.details[f.key])?.label ?? inspectTx.details[f.key]}
+                    </span>
+                  </div>
+                ) : null
+              )}
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">Production</span>
+                <ProductionStatusBadge status={inspectTx.productionStatus} />
+              </div>
+              {inspectTx.documentReference && inspectTx.productionId && (
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Document</span>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewProductionId(inspectTx.productionId)}
+                    className="font-mono-ref text-xs font-semibold text-[#332E86] hover:underline cursor-pointer"
+                  >
+                    {inspectTx.documentReference}
+                  </button>
+                </div>
+              )}
               {inspectTx.notes && (
                 <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs text-slate-700">
                   <strong className="block text-slate-900 mb-0.5">Observations :</strong>
@@ -807,6 +908,11 @@ export function SupervisorDashboard() {
                   {inspectTx.cancelReason}
                 </div>
               )}
+            </div>
+
+            <div className="border-t border-slate-200 pt-4">
+              <h4 className="text-sm font-semibold text-slate-900 mb-3">Historique des actions</h4>
+              <TransactionTimeline transactionId={inspectTx.id} refreshKey={historyKey} />
             </div>
           </div>
         </div>
@@ -946,6 +1052,10 @@ export function SupervisorDashboard() {
             </div>
           </form>
         </div>
+      )}
+
+      {previewProductionId && (
+        <DocumentPreview productionId={previewProductionId} onClose={() => setPreviewProductionId(null)} />
       )}
     </div>
   );

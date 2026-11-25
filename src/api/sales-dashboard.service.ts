@@ -1,5 +1,6 @@
 import type {
   AgentSalesBreakdown,
+  ProductionSummary,
   SalesSummary,
   ServiceSalesBreakdown,
   TransactionFilters,
@@ -37,5 +38,16 @@ export const salesDashboardService = {
       serviceId: filters.serviceId,
     });
     return res.byAgent;
+  },
+
+  async getProductionSummary(filters: TransactionFilters = {}): Promise<ProductionSummary> {
+    const res = await apiClient.get<{ productionSummary: ProductionSummary }>('/scolarite/dashboard/production-summary', {
+      period: filters.period,
+      startDate: filters.startDate,
+      endDate: filters.endDate,
+      serviceId: filters.serviceId,
+      agentId: filters.agentId,
+    });
+    return res.productionSummary;
   },
 };

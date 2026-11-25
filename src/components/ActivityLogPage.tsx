@@ -2,21 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, ShieldAlert, AlertCircle } from 'lucide-react';
 import { activityLogService } from '../api/activity-log.service';
 import type { ActivityLogEntry } from '../types/scolarite';
+import { ACTION_LABELS } from '../utils/activity-labels';
 import { formatDateTime } from '../utils/format';
 
-const ACTION_LABELS: Record<string, string> = {
-  TRANSACTION_CREATED: 'Transaction créée',
-  TRANSACTION_PAYMENT_CONFIRMED: 'Encaissement confirmé',
-  TRANSACTION_CANCELLED: 'Transaction annulée',
-  TRANSACTION_CORRECTED: 'Transaction corrigée',
-  SERVICE_CREATED: 'Service créé',
-  SERVICE_UPDATED: 'Service modifié',
-  SERVICE_PRICE_CHANGED: 'Tarif modifié',
-  STUDENT_CREATED: 'Étudiant enregistré',
-  GRADE_RECORDED: 'Note académique saisie',
-  USER_CREATED: 'Compte utilisateur créé',
-  USER_STATUS_CHANGED: 'Statut utilisateur modifié',
-};
 
 export function ActivityLogPage() {
   const [logs, setLogs] = useState<ActivityLogEntry[]>([]);
@@ -80,6 +68,8 @@ export function ActivityLogPage() {
           >
             <option value="ALL">Toutes les entités</option>
             <option value="SERVICE_TRANSACTION">Transactions de service</option>
+            <option value="PAYMENT">Paiements</option>
+            <option value="PRODUCTION_REQUEST">Demandes de production</option>
             <option value="SERVICE">Catalogue des services</option>
             <option value="STUDENT">Étudiants</option>
             <option value="USER">Utilisateurs</option>

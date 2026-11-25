@@ -18,4 +18,12 @@ export const activityLogService = {
     });
     return res.logs;
   },
+
+  /** History of one transaction, including its payment and production request. */
+  async getTransactionHistory(transactionId: string): Promise<ActivityLogEntry[]> {
+    const res = await apiClient.get<{ logs: ActivityLogEntry[] }>(
+      `/scolarite/transactions/${encodeURIComponent(transactionId)}/history`
+    );
+    return res.logs;
+  },
 };

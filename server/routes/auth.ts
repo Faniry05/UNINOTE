@@ -10,7 +10,9 @@ import {
   requireSupervisor,
   verifyPassword,
 } from '../auth.ts';
+import { isDemoMode } from '../config.ts';
 import { db, logActivity, runInTransaction } from '../db.ts';
+import { DEMO_ACCOUNTS, DEMO_PASSWORD } from '../demo.ts';
 
 export const authRouter = Router();
 
@@ -19,6 +21,11 @@ authRouter.get('/auth/status', (_req, res) => {
   res.json({
     needsSetup: row.count === 0,
     hasEnvPasscode: Boolean(process.env.ADMIN_PASSCODE && process.env.ADMIN_PASSCODE.trim().length > 0),
+    demoMode: isDemoMode(),
+    // Demo credentials are public by design, and only exposed in demo mode.
+    demoAccounts: isDemoMode()
+      ? DEMO_ACCOUNTS.map((a) => ({ username: a.username, fullName: a.fullName, role: a.role, password: DEMO_PASSWORD }))
+      : [],
   });
 });
 

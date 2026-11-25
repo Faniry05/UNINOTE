@@ -13,16 +13,21 @@ import {
   Clock,
   Receipt,
   Loader2,
+  Hammer,
 } from 'lucide-react';
+import { getServiceFields } from '../../shared/service-forms';
 import { catalogService } from '../api/catalog.service';
+import { ApiError } from '../api/client';
+import { paymentsService } from '../api/payments.service';
 import { studentsService } from '../api/students.service';
 import { transactionsService } from '../api/transactions.service';
 import type { ServiceItem, ServiceTransaction, Student, User } from '../types/scolarite';
 import { formatAriary, formatDateTime } from '../utils/format';
-import { PaymentStatusBadge, TransactionStatusBadge } from './StatusBadge';
+import { PaymentStatusBadge, ProductionStatusBadge, TransactionStatusBadge } from './StatusBadge';
 
 interface CounterInterfaceProps {
   currentUser: User;
+  onOpenProduction?: (productionId: string) => void;
 }
 
 function getServiceIcon(code: string) {
@@ -31,7 +36,7 @@ function getServiceIcon(code: string) {
   return BadgeCheck;
 }
 
-export function CounterInterface({ currentUser }: CounterInterfaceProps) {
+export function CounterInterface({ currentUser, onOpenProduction }: CounterInterfaceProps) {
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [loadingServices, setLoadingServices] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -46,6 +51,8 @@ export function CounterInterface({ currentUser }: CounterInterfaceProps) {
   const [contact, setContact] = useState('');
   const [notes, setNotes] = useState('');
   const [paymentConfirmed, setPaymentConfirmed] = useState(false);
+  const [amountReceived, setAmountReceived] = useState('');
+  const [details, setDetails] = useState<Record<string, string>>({});
 
   const [lookupState, setLookupState] = useState<'idle' | 'searching' | 'found' | 'not_found'>('idle');
   const [matchedStudent, setMatchedStudent] = useState<Student | null>(null);
@@ -59,6 +66,7 @@ export function CounterInterface({ currentUser }: CounterInterfaceProps) {
   const [confirmedResult, setConfirmedResult] = useState<{
     transaction: ServiceTransaction;
     studentCreated: boolean;
+    duplicate?: boolean;
   } | null>(null);
   const [confirmingReceiptPayment, setConfirmingReceiptPayment] = useState(false);
 
@@ -96,7 +104,9 @@ export function CounterInterface({ currentUser }: CounterInterfaceProps) {
     setPromotion('');
     setContact('');
     setNotes('');
+    setDetails(defaultDetails(keepService ? selectedService : null));
     setPaymentConfirmed(false);
+    setAmountReceived('');
     setLookupState('idle');
     setMatchedStudent(null);
     setSuggestions([]);
@@ -106,8 +116,21 @@ export function CounterInterface({ currentUser }: CounterInterfaceProps) {
     setIdempotencyKey(crypto.randomUUID());
   }
 
+  function defaultDetails(service: ServiceItem | null): Record<string, string> {
+    if (!service) return {};
+    const init: Record<string, string> = {};
+    for (const f of getServiceFields(service.code)) {
+      if (f.type === 'number') init[f.key] = '1';
+      if (f.type === 'select' && f.options?.[0]) init[f.key] = f.options[0].value;
+    }
+    return init;
+  }
+
   function handleSelectService(service: ServiceItem) {
     setSelectedService(service);
+    setDetails(defaultDetails(service));
+    setPaymentConfirmed(false);
+    setAmountReceived('');
     setConfirmedResult(null);
     setSubmitError(null);
     setIdempotencyKey(crypto.randomUUID());
@@ -165,6 +188,15 @@ export function CounterInterface({ currentUser }: CounterInterfaceProps) {
       setSubmitError('Veuillez renseigner le matricule, le nom, le prénom et la promotion.');
       return;
     }
+    const missing = getServiceFields(selectedService.code).find((f) => f.required && !details[f.key]?.trim());
+    if (missing) {
+      setSubmitError(`Le champ « ${missing.label} » est obligatoire.`);
+      return;
+    }
+    if (paymentConfirmed && Number(amountReceived) !== selectedService.price) {
+      setSubmitError(`Le montant encaissé doit être égal au tarif en vigueur (${formatAriary(selectedService.price)}).`);
+      return;
+    }
     setShowConfirmModal(true);
   }
 
@@ -184,12 +216,22 @@ export function CounterInterface({ currentUser }: CounterInterfaceProps) {
           contact: contact.trim(),
         },
         paymentConfirmed,
+        amountReceived: paymentConfirmed ? Number(amountReceived) : undefined,
+        expectedPrice: selectedService.price,
+        details,
         notes: notes.trim(),
       });
       setShowConfirmModal(false);
       setConfirmedResult(res);
     } catch (err) {
       setShowConfirmModal(false);
+      // Double submission (double click, network retry): the server returns the
+      // sale already recorded with this idempotency key instead of a new one.
+      const payload = err instanceof ApiError ? (err.details as { duplicate?: boolean; transaction?: ServiceTransaction }) : null;
+      if (err instanceof ApiError && err.status === 409 && payload?.duplicate && payload.transaction) {
+        setConfirmedResult({ transaction: payload.transaction, studentCreated: false, duplicate: true });
+        return;
+      }
       setSubmitError(err instanceof Error ? err.message : 'Échec de l’enregistrement de la prestation.');
     } finally {
       setSubmitting(false);
@@ -201,7 +243,10 @@ export function CounterInterface({ currentUser }: CounterInterfaceProps) {
     setConfirmingReceiptPayment(true);
     setSubmitError(null);
     try {
-      const updated = await transactionsService.confirmPayment(confirmedResult.transaction.id);
+      const updated = await paymentsService.recordCashPayment({
+        transactionId: confirmedResult.transaction.id,
+        amountReceived: confirmedResult.transaction.priceAtTransaction,
+      });
       setConfirmedResult({ ...confirmedResult, transaction: updated });
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Impossible de confirmer l’encaissement.');
@@ -266,6 +311,34 @@ export function CounterInterface({ currentUser }: CounterInterfaceProps) {
             <div className="mt-4 flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-2.5 text-sm text-rose-800">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{submitError}</span>
+            </div>
+          )}
+
+          {confirmedResult.duplicate && (
+            <div className="mt-4 flex items-center gap-2 rounded-xl bg-sky-50 border border-sky-200 px-3.5 py-2.5 text-sm text-sky-900">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>Cette opération avait déjà été enregistrée : aucune seconde vente n’a été créée.</span>
+            </div>
+          )}
+
+          {confirmedResult.transaction.productionId && (
+            <div className="mt-5 rounded-xl bg-indigo-50/70 border border-indigo-200 px-4 py-3 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <Hammer className="h-4 w-4 text-[#332E86] shrink-0" />
+                <div>
+                  <div className="font-semibold text-slate-900">Demande de production créée automatiquement</div>
+                  <div className="mt-1"><ProductionStatusBadge status={confirmedResult.transaction.productionStatus} /></div>
+                </div>
+              </div>
+              {onOpenProduction && (
+                <button
+                  type="button"
+                  onClick={() => onOpenProduction(confirmedResult.transaction.productionId!)}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#332E86] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#28246b] whitespace-nowrap cursor-pointer"
+                >
+                  Suivre la production
+                </button>
+              )}
             </div>
           )}
 
@@ -607,6 +680,48 @@ export function CounterInterface({ currentUser }: CounterInterfaceProps) {
                     className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none focus:ring-2 focus:ring-[#332E86]/20"
                   />
                 </div>
+
+                {getServiceFields(selectedService.code).length > 0 && (
+                  <div className="border-t border-slate-200/80 pt-4 space-y-4">
+                    <h3 className="text-sm font-semibold text-slate-900">3. Détails de la demande — {selectedService.name}</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {getServiceFields(selectedService.code).map((field) => (
+                        <div key={field.key}>
+                          <label className="block text-xs font-medium text-slate-700 mb-1.5" htmlFor={`detail-${field.key}`}>
+                            {field.label}
+                            {field.required ? ' *' : ''}
+                          </label>
+                          {field.type === 'select' ? (
+                            <select
+                              id={`detail-${field.key}`}
+                              value={details[field.key] ?? ''}
+                              onChange={(e) => setDetails((d) => ({ ...d, [field.key]: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none"
+                            >
+                              {field.options?.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              id={`detail-${field.key}`}
+                              type={field.type === 'number' ? 'number' : 'text'}
+                              min={field.type === 'number' ? 1 : undefined}
+                              max={field.type === 'number' ? 20 : undefined}
+                              required={field.required}
+                              value={details[field.key] ?? ''}
+                              onChange={(e) => setDetails((d) => ({ ...d, [field.key]: e.target.value }))}
+                              placeholder={field.placeholder}
+                              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none focus:ring-2 focus:ring-[#332E86]/20"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Right Column: Live Summary & Confirmation Trigger */}
@@ -646,7 +761,10 @@ export function CounterInterface({ currentUser }: CounterInterfaceProps) {
                   <input
                     type="checkbox"
                     checked={paymentConfirmed}
-                    onChange={(e) => setPaymentConfirmed(e.target.checked)}
+                    onChange={(e) => {
+                      setPaymentConfirmed(e.target.checked);
+                      setAmountReceived(e.target.checked ? String(selectedService.price) : '');
+                    }}
                     className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#332E86] focus:ring-[#332E86]"
                   />
                   <span className="text-xs text-slate-700 leading-relaxed">
@@ -655,6 +773,31 @@ export function CounterInterface({ currentUser }: CounterInterfaceProps) {
                     enregistrée en attente de confirmation.
                   </span>
                 </label>
+
+                {paymentConfirmed && (
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Mode de paiement</span>
+                      <span className="font-medium text-slate-900">Espèces</span>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1" htmlFor="amount-received">
+                        Montant encaissé (Ar)
+                      </label>
+                      <input
+                        id="amount-received"
+                        type="number"
+                        min={0}
+                        value={amountReceived}
+                        onChange={(e) => setAmountReceived(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm tabular-nums text-slate-900 focus:border-[#332E86] focus:outline-none"
+                      />
+                      {amountReceived !== '' && Number(amountReceived) !== selectedService.price && (
+                        <p className="mt-1 text-xs text-rose-700">Doit être égal au tarif : {formatAriary(selectedService.price)}.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <button
                   type="submit"
@@ -701,12 +844,27 @@ export function CounterInterface({ currentUser }: CounterInterfaceProps) {
                 <span className="text-slate-500">Montant appliqué</span>
                 <span className="font-bold text-[#332E86] tabular-nums">{formatAriary(selectedService.price)}</span>
               </div>
+              {getServiceFields(selectedService.code).map((f) =>
+                details[f.key] ? (
+                  <div key={f.key} className="flex justify-between gap-2">
+                    <span className="text-slate-500">{f.label.replace(' (optionnel)', '')}</span>
+                    <span className="font-medium text-slate-900 text-right">
+                      {f.options?.find((o) => o.value === details[f.key])?.label ?? details[f.key]}
+                    </span>
+                  </div>
+                ) : null
+              )}
               <div className="flex justify-between gap-2">
                 <span className="text-slate-500">Statut paiement</span>
                 <span className="font-medium text-slate-900">
-                  {paymentConfirmed ? 'Encaissement confirmé' : 'En attente de règlement'}
+                  {paymentConfirmed ? `Espèces — ${formatAriary(Number(amountReceived))} encaissés` : 'En attente de règlement'}
                 </span>
               </div>
+              {paymentConfirmed && (
+                <div className="text-xs text-slate-500 pt-1">
+                  La validation crée la transaction, le paiement et la demande de production.
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2.5">

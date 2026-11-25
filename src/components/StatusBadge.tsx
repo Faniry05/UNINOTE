@@ -1,5 +1,5 @@
-import { CheckCircle2, Clock, XCircle, Banknote, AlertCircle } from 'lucide-react';
-import type { PaymentStatus, TransactionStatus } from '../types/scolarite';
+import { CheckCircle2, Clock, XCircle, Banknote, AlertCircle, FileClock, Hammer, PackageCheck, HandHeart } from 'lucide-react';
+import type { PaymentStatus, ProductionStatus, TransactionStatus } from '../types/scolarite';
 
 export function TransactionStatusBadge({ status }: { status: TransactionStatus }) {
   if (status === 'COMPLETED') {
@@ -31,7 +31,7 @@ export function PaymentStatusBadge({ paymentStatus }: { paymentStatus: PaymentSt
     return (
       <span className="inline-flex items-center gap-1.5 rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-medium text-[#332E86] border border-indigo-200 whitespace-nowrap">
         <Banknote className="h-3.5 w-3.5 shrink-0" />
-        Encaissé
+        Payé (espèces)
       </span>
     );
   }
@@ -39,7 +39,7 @@ export function PaymentStatusBadge({ paymentStatus }: { paymentStatus: PaymentSt
     return (
       <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 border border-slate-200 whitespace-nowrap">
         <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-        Remboursé / Annulé
+        Paiement annulé
       </span>
     );
   }
@@ -47,6 +47,33 @@ export function PaymentStatusBadge({ paymentStatus }: { paymentStatus: PaymentSt
     <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-50/70 px-2.5 py-1 text-xs font-medium text-amber-800 border border-amber-200/80 whitespace-nowrap">
       <Clock className="h-3.5 w-3.5 shrink-0" />
       Non encaissé
+    </span>
+  );
+}
+
+export const PRODUCTION_STATUS_LABELS: Record<ProductionStatus, string> = {
+  A_PRODUIRE: 'À produire',
+  EN_PRODUCTION: 'En production',
+  PRET: 'Prêt',
+  REMIS: 'Remis',
+};
+
+const PRODUCTION_STYLES: Record<ProductionStatus, { cls: string; Icon: typeof Clock }> = {
+  A_PRODUIRE: { cls: 'bg-amber-50 text-amber-800 border-amber-200', Icon: FileClock },
+  EN_PRODUCTION: { cls: 'bg-sky-50 text-sky-800 border-sky-200', Icon: Hammer },
+  PRET: { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', Icon: PackageCheck },
+  REMIS: { cls: 'bg-slate-100 text-slate-700 border-slate-200', Icon: HandHeart },
+};
+
+export function ProductionStatusBadge({ status }: { status: ProductionStatus | null | undefined }) {
+  if (!status) {
+    return <span className="text-xs text-slate-400 whitespace-nowrap">Pas de production</span>;
+  }
+  const { cls, Icon } = PRODUCTION_STYLES[status];
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium border whitespace-nowrap ${cls}`}>
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      {PRODUCTION_STATUS_LABELS[status]}
     </span>
   );
 }

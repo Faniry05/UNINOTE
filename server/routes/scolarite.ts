@@ -1,7 +1,18 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import { type AuthenticatedRequest, type AuthenticatedUser, requireAuth, requireSupervisor } from '../auth.ts';
+import { validateServiceDetails } from '../../shared/service-forms.ts';
 import { db, logActivity, runInTransaction } from '../db.ts';
+import {
+  DomainError,
+  cancelPaymentForTransaction,
+  createProductionRequest,
+  generateTransactionReference,
+  isProductionStatus,
+  recordCashPayment,
+  regenerateDocument,
+  transitionProduction,
+} from '../scolarite-domain.ts';
 
 export const scolariteRouter = Router();
 
@@ -12,7 +23,32 @@ interface FilterParams {
   serviceId?: string;
   agentId?: string;
   status?: string;
+  productionStatus?: string;
   search?: string;
+}
+
+function readFilters(query: Record<string, unknown>): FilterParams {
+  const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
+  return {
+    period: str(query.period),
+    startDate: str(query.startDate),
+    endDate: str(query.endDate),
+    serviceId: str(query.serviceId),
+    agentId: str(query.agentId),
+    status: str(query.status),
+    productionStatus: str(query.productionStatus),
+    search: str(query.search),
+  };
+}
+
+function sendError(res: import('express').Response, err: unknown, fallback: string): void {
+  const statusCode =
+    err instanceof DomainError
+      ? err.statusCode
+      : typeof err === 'object' && err !== null && 'statusCode' in err
+        ? Number((err as { statusCode: number }).statusCode)
+        : 500;
+  res.status(statusCode).json({ error: err instanceof Error ? err.message : fallback });
 }
 
 function resolveDateBounds(period?: string, startDate?: string, endDate?: string): { from?: string; to?: string } {
@@ -69,6 +105,11 @@ function buildTransactionWhere(filters: FilterParams, user: AuthenticatedUser): 
     params.push(filters.status);
   }
 
+  if (filters.productionStatus && isProductionStatus(filters.productionStatus)) {
+    clauses.push('pr.status = ?');
+    params.push(filters.productionStatus);
+  }
+
   const { from, to } = resolveDateBounds(filters.period, filters.startDate, filters.endDate);
   if (from) {
     clauses.push('t.createdAt >= ?');
@@ -91,30 +132,7 @@ function buildTransactionWhere(filters: FilterParams, user: AuthenticatedUser): 
   };
 }
 
-function generateTransactionReference(now: Date): string {
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  const datePart = `${yyyy}${mm}${dd}`;
-  const prefix = `SCOL-${datePart}-`;
-
-  const row = db
-    .prepare('SELECT COUNT(*) AS count FROM service_transactions WHERE reference LIKE ?')
-    .get(`${prefix}%`) as { count: number };
-
-  let seq = row.count + 1;
-  let candidate = `${prefix}${String(seq).padStart(4, '0')}`;
-  while (db.prepare('SELECT 1 FROM service_transactions WHERE reference = ?').get(candidate)) {
-    seq += 1;
-    candidate = `${prefix}${String(seq).padStart(4, '0')}`;
-  }
-  return candidate;
-}
-
-function getHydratedTransactionById(id: string) {
-  return db
-    .prepare(
-      `SELECT
+const TX_SELECT = `SELECT
          t.id,
          t.reference,
          t.studentId,
@@ -126,6 +144,7 @@ function getHydratedTransactionById(id: string) {
          t.paymentConfirmedAt,
          t.paymentConfirmedByUserId,
          t.notes,
+         t.details,
          t.cancelReason,
          t.cancelledByUserId,
          t.cancelledAt,
@@ -141,16 +160,37 @@ function getHydratedTransactionById(id: string) {
          u.fullName AS agentName,
          u.username AS agentUsername,
          cu.fullName AS cancelledByName,
-         pu.fullName AS paymentConfirmedByName
+         pu.fullName AS paymentConfirmedByName,
+         pay.id AS paymentId,
+         pay.status AS paymentRecordStatus,
+         pay.method AS paymentMethod,
+         pay.amount AS paymentAmount,
+         pr.id AS productionId,
+         pr.status AS productionStatus,
+         pr.generatedDocumentReference AS documentReference
        FROM service_transactions t
        JOIN students st ON st.id = t.studentId
        JOIN services sv ON sv.id = t.serviceId
        JOIN users u ON u.id = t.performedByUserId
        LEFT JOIN users cu ON cu.id = t.cancelledByUserId
        LEFT JOIN users pu ON pu.id = t.paymentConfirmedByUserId
-       WHERE t.id = ?`
-    )
-    .get(id);
+       LEFT JOIN payments pay ON pay.transactionId = t.id
+       LEFT JOIN production_requests pr ON pr.transactionId = t.id`;
+
+function hydrateTx(row: unknown) {
+  if (!row) return row;
+  const r = row as { details?: string };
+  let details: Record<string, string> = {};
+  try {
+    details = JSON.parse(r.details || '{}') as Record<string, string>;
+  } catch {
+    details = {};
+  }
+  return { ...(row as object), details };
+}
+
+function getHydratedTransactionById(id: string) {
+  return hydrateTx(db.prepare(`${TX_SELECT} WHERE t.id = ?`).get(id));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -388,8 +428,14 @@ scolariteRouter.patch('/scolarite/services/:id/price', requireAuth, requireSuper
 /* SERVICE TRANSACTIONS                                                       */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Creates a sale. When the agent confirms the cash payment, the transaction,
+ * the payment record and the production request are created atomically in a
+ * single DB transaction. The idempotency key prevents double submissions.
+ */
 scolariteRouter.post('/scolarite/transactions', requireAuth, (req: AuthenticatedRequest, res) => {
-  const { serviceId, idempotencyKey, student, paymentConfirmed, notes } = req.body ?? {};
+  const { serviceId, idempotencyKey, student, paymentConfirmed, amountReceived, expectedPrice, notes, details } =
+    req.body ?? {};
 
   if (typeof serviceId !== 'string' || !serviceId.trim()) {
     res.status(400).json({ error: 'Le service sélectionné est requis.' });
@@ -432,14 +478,33 @@ scolariteRouter.post('/scolarite/transactions', requireAuth, (req: Authenticated
       }
 
       const service = db
-        .prepare('SELECT id, name, price, isActive FROM services WHERE id = ?')
-        .get(serviceId.trim()) as { id: string; name: string; price: number; isActive: number } | undefined;
+        .prepare('SELECT id, code, name, price, isActive FROM services WHERE id = ?')
+        .get(serviceId.trim()) as { id: string; code: string; name: string; price: number; isActive: number } | undefined;
 
       if (!service) {
-        throw Object.assign(new Error('Service introuvable.'), { statusCode: 404 });
+        throw new DomainError('Service introuvable.', 404);
       }
       if (service.isActive !== 1) {
-        throw Object.assign(new Error('Ce service est actuellement désactivé.'), { statusCode: 400 });
+        throw new DomainError('Ce service est actuellement désactivé.', 400);
+      }
+
+      // Server-side amount validation: the price always comes from the catalog.
+      if (expectedPrice !== undefined && Number(expectedPrice) !== service.price) {
+        throw new DomainError(
+          `Le tarif de « ${service.name} » a changé (${service.price} Ar). Vérifiez le récapitulatif avant de valider.`,
+          409
+        );
+      }
+      if (isPaid && Number(amountReceived) !== service.price) {
+        throw new DomainError(
+          `Le montant encaissé doit être exactement égal au tarif en vigueur (${service.price} Ar).`,
+          400
+        );
+      }
+
+      const detailsCheck = validateServiceDetails(service.code, details);
+      if (!detailsCheck.ok) {
+        throw new DomainError(detailsCheck.error, 400);
       }
 
       const nowDate = new Date();
@@ -490,8 +555,8 @@ scolariteRouter.post('/scolarite/transactions', requireAuth, (req: Authenticated
         `INSERT INTO service_transactions (
            id, reference, idempotencyKey, studentId, serviceId, performedByUserId,
            priceAtTransaction, status, paymentStatus, paymentConfirmedAt, paymentConfirmedByUserId,
-           notes, createdAt, updatedAt
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           notes, details, createdAt, updatedAt
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         txId,
         reference,
@@ -505,6 +570,7 @@ scolariteRouter.post('/scolarite/transactions', requireAuth, (req: Authenticated
         isPaid ? now : null,
         isPaid ? req.user!.id : null,
         cleanNotes,
+        JSON.stringify(detailsCheck.details),
         now,
         now
       );
@@ -527,12 +593,26 @@ scolariteRouter.post('/scolarite/transactions', requireAuth, (req: Authenticated
         now
       );
 
+      if (isPaid) {
+        recordCashPayment(txId, service.price, req.user!.id, now);
+        logActivity(
+          req.user!.id,
+          'TRANSACTION_PAYMENT_CONFIRMED',
+          'SERVICE_TRANSACTION',
+          txId,
+          { reference, amount: service.price, method: 'CASH' },
+          now
+        );
+        createProductionRequest(txId, req.user!.id, now);
+      }
+
       return { duplicate: false as const, transaction: getHydratedTransactionById(txId), studentCreated };
     });
 
     if (result.duplicate) {
       res.status(409).json({
         error: 'Cette opération a déjà été soumise.',
+        duplicate: true,
         transaction: result.existing,
       });
       return;
@@ -543,86 +623,84 @@ scolariteRouter.post('/scolarite/transactions', requireAuth, (req: Authenticated
       studentCreated: result.studentCreated,
     });
   } catch (err) {
-    const statusCode =
-      typeof err === 'object' && err !== null && 'statusCode' in err ? Number((err as { statusCode: number }).statusCode) : 500;
-    res.status(statusCode).json({ error: err instanceof Error ? err.message : 'Erreur lors de la création.' });
+    sendError(res, err, 'Erreur lors de la création.');
   }
 });
 
 scolariteRouter.get('/scolarite/transactions', requireAuth, (req: AuthenticatedRequest, res) => {
-  const filters: FilterParams = {
-    period: typeof req.query.period === 'string' ? req.query.period : undefined,
-    startDate: typeof req.query.startDate === 'string' ? req.query.startDate : undefined,
-    endDate: typeof req.query.endDate === 'string' ? req.query.endDate : undefined,
-    serviceId: typeof req.query.serviceId === 'string' ? req.query.serviceId : undefined,
-    agentId: typeof req.query.agentId === 'string' ? req.query.agentId : undefined,
-    status: typeof req.query.status === 'string' ? req.query.status : undefined,
-    search: typeof req.query.search === 'string' ? req.query.search : undefined,
-  };
-
+  const filters = readFilters(req.query);
   const where = buildTransactionWhere(filters, req.user!);
-  const rows = db
-    .prepare(
-      `SELECT
-         t.id,
-         t.reference,
-         t.studentId,
-         t.serviceId,
-         t.performedByUserId,
-         t.priceAtTransaction,
-         t.status,
-         t.paymentStatus,
-         t.paymentConfirmedAt,
-         t.paymentConfirmedByUserId,
-         t.notes,
-         t.cancelReason,
-         t.cancelledByUserId,
-         t.cancelledAt,
-         t.createdAt,
-         t.updatedAt,
-         st.matricule AS studentMatricule,
-         st.nom AS studentNom,
-         st.prenom AS studentPrenom,
-         st.promotion AS studentPromotion,
-         st.contact AS studentContact,
-         sv.code AS serviceCode,
-         sv.name AS serviceName,
-         u.fullName AS agentName,
-         u.username AS agentUsername,
-         cu.fullName AS cancelledByName,
-         pu.fullName AS paymentConfirmedByName
-       FROM service_transactions t
-       JOIN students st ON st.id = t.studentId
-       JOIN services sv ON sv.id = t.serviceId
-       JOIN users u ON u.id = t.performedByUserId
-       LEFT JOIN users cu ON cu.id = t.cancelledByUserId
-       LEFT JOIN users pu ON pu.id = t.paymentConfirmedByUserId
-       ${where.sql}
-       ORDER BY t.createdAt DESC
-       LIMIT 250`
-    )
-    .all(...where.params);
-
-  res.json({ transactions: rows });
+  const rows = db.prepare(`${TX_SELECT} ${where.sql} ORDER BY t.createdAt DESC LIMIT 250`).all(...where.params);
+  res.json({ transactions: rows.map(hydrateTx) });
 });
 
-scolariteRouter.get('/scolarite/transactions/:id', requireAuth, (req: AuthenticatedRequest, res) => {
-  const tx = getHydratedTransactionById(req.params.id) as { performedByUserId: string } | undefined;
+function loadAccessibleTransaction(
+  req: AuthenticatedRequest,
+  res: import('express').Response
+): { id: string; performedByUserId: string; productionId: string | null; paymentId: string | null } | null {
+  const tx = getHydratedTransactionById(req.params.id) as
+    | { id: string; performedByUserId: string; productionId: string | null; paymentId: string | null }
+    | undefined;
   if (!tx) {
     res.status(404).json({ error: 'Transaction introuvable.' });
-    return;
+    return null;
   }
-
   if (req.user!.role === 'AGENT' && tx.performedByUserId !== req.user!.id) {
     res.status(403).json({ error: 'Accès refusé à cette transaction.' });
-    return;
+    return null;
   }
+  return tx;
+}
 
+scolariteRouter.get('/scolarite/transactions/:id', requireAuth, (req: AuthenticatedRequest, res) => {
+  const tx = loadAccessibleTransaction(req, res);
+  if (!tx) return;
   res.json({ transaction: tx });
 });
 
+scolariteRouter.get('/scolarite/transactions/:id/payment', requireAuth, (req: AuthenticatedRequest, res) => {
+  const tx = loadAccessibleTransaction(req, res);
+  if (!tx) return;
+  const payment = db
+    .prepare(
+      `SELECT p.id, p.transactionId, p.amount, p.method, p.status, p.receivedByUserId, p.paidAt,
+              p.cancelledAt, p.cancelledByUserId, u.fullName AS receivedByName
+       FROM payments p JOIN users u ON u.id = p.receivedByUserId WHERE p.transactionId = ?`
+    )
+    .get(tx.id);
+  res.json({ payment: payment ?? null });
+});
+
+/** Full traceable history of a transaction, its payment and its production request. */
+scolariteRouter.get('/scolarite/transactions/:id/history', requireAuth, (req: AuthenticatedRequest, res) => {
+  const tx = loadAccessibleTransaction(req, res);
+  if (!tx) return;
+  const ids = [tx.id, tx.productionId, tx.paymentId].filter((v): v is string => Boolean(v));
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT a.id, a.userId, a.action, a.entityType, a.entityId, a.metadata, a.createdAt,
+              u.fullName AS actorName, u.username AS actorUsername, u.role AS actorRole
+       FROM activity_logs a JOIN users u ON u.id = a.userId
+       WHERE a.entityId IN (${placeholders}) OR json_extract(a.metadata, '$.originalTransactionId') = ?
+       ORDER BY a.createdAt ASC`
+    )
+    .all(...ids, tx.id) as Array<{ metadata: string }>;
+  res.json({ logs: rows.map((r) => ({ ...r, metadata: safeParse(r.metadata) })) });
+});
+
+function safeParse(raw: string): Record<string, unknown> {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/** Confirms the cash payment of a pending sale and creates its production request. */
 scolariteRouter.post('/scolarite/transactions/:id/confirm-payment', requireAuth, (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
+  const { amountReceived } = req.body ?? {};
   const existing = db
     .prepare('SELECT id, reference, performedByUserId, status, paymentStatus, priceAtTransaction FROM service_transactions WHERE id = ?')
     .get(id) as
@@ -650,32 +728,52 @@ scolariteRouter.post('/scolarite/transactions/:id/confirm-payment', requireAuth,
     res.status(400).json({ error: 'Impossible de confirmer le paiement d’une transaction annulée.' });
     return;
   }
-  if (existing.status === 'COMPLETED' && existing.paymentStatus === 'PAID') {
-    res.status(400).json({ error: 'Le paiement de cette transaction est déjà confirmé.' });
+  if (existing.paymentStatus === 'PAID') {
+    res.status(409).json({ error: 'Le paiement de cette transaction est déjà confirmé.' });
+    return;
+  }
+  if (amountReceived !== undefined && Number(amountReceived) !== existing.priceAtTransaction) {
+    res.status(400).json({
+      error: `Le montant encaissé doit être égal au prix appliqué (${existing.priceAtTransaction} Ar).`,
+    });
     return;
   }
 
   const now = new Date().toISOString();
-  runInTransaction(() => {
-    db.prepare(
-      `UPDATE service_transactions
-       SET status = 'COMPLETED', paymentStatus = 'PAID', paymentConfirmedAt = ?, paymentConfirmedByUserId = ?, updatedAt = ?
-       WHERE id = ?`
-    ).run(now, req.user!.id, now, id);
+  try {
+    runInTransaction(() => {
+      // Conditional update guards against concurrent confirmations.
+      const update = db
+        .prepare(
+          `UPDATE service_transactions
+           SET status = 'COMPLETED', paymentStatus = 'PAID', paymentConfirmedAt = ?, paymentConfirmedByUserId = ?, updatedAt = ?
+           WHERE id = ? AND paymentStatus = 'UNPAID' AND status = 'PENDING'`
+        )
+        .run(now, req.user!.id, now, id);
+      if (Number(update.changes) !== 1) {
+        throw new DomainError('Le paiement de cette transaction est déjà confirmé.', 409);
+      }
 
-    logActivity(
-      req.user!.id,
-      'TRANSACTION_PAYMENT_CONFIRMED',
-      'SERVICE_TRANSACTION',
-      id,
-      { reference: existing.reference, amount: existing.priceAtTransaction },
-      now
-    );
-  });
+      recordCashPayment(id, existing.priceAtTransaction, req.user!.id, now);
+      logActivity(
+        req.user!.id,
+        'TRANSACTION_PAYMENT_CONFIRMED',
+        'SERVICE_TRANSACTION',
+        id,
+        { reference: existing.reference, amount: existing.priceAtTransaction, method: 'CASH' },
+        now
+      );
+      createProductionRequest(id, req.user!.id, now);
+    });
+  } catch (err) {
+    sendError(res, err, 'Impossible de confirmer le paiement.');
+    return;
+  }
 
   res.json({ transaction: getHydratedTransactionById(id) });
 });
 
+/** Cancels a transaction with a mandatory reason. Nothing is deleted. */
 scolariteRouter.post('/scolarite/transactions/:id/cancel', requireAuth, requireSupervisor, (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
   const { reason } = req.body ?? {};
@@ -710,6 +808,11 @@ scolariteRouter.post('/scolarite/transactions/:id/cancel', requireAuth, requireS
        SET status = 'CANCELLED', paymentStatus = ?, cancelReason = ?, cancelledByUserId = ?, cancelledAt = ?, updatedAt = ?
        WHERE id = ?`
     ).run(nextPaymentStatus, reason.trim(), req.user!.id, now, now, id);
+    cancelPaymentForTransaction(id, req.user!.id, now);
+
+    const production = db.prepare('SELECT id, status FROM production_requests WHERE transactionId = ?').get(id) as
+      | { id: string; status: string }
+      | undefined;
 
     logActivity(
       req.user!.id,
@@ -722,6 +825,7 @@ scolariteRouter.post('/scolarite/transactions/:id/cancel', requireAuth, requireS
         previousStatus: existing.status,
         nextPaymentStatus,
         amount: existing.priceAtTransaction,
+        productionStatusAtCancellation: production?.status ?? null,
       },
       now
     );
@@ -730,6 +834,10 @@ scolariteRouter.post('/scolarite/transactions/:id/cancel', requireAuth, requireS
   res.json({ transaction: getHydratedTransactionById(id) });
 });
 
+/**
+ * Correction = cancellation of the original + a new traceable transaction.
+ * The confirmed transaction itself is never modified silently.
+ */
 scolariteRouter.post('/scolarite/transactions/:id/correct', requireAuth, requireSupervisor, (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
   const { reason, serviceId, paymentConfirmed, notes } = req.body ?? {};
@@ -744,7 +852,7 @@ scolariteRouter.post('/scolarite/transactions/:id/correct', requireAuth, require
   }
 
   const original = db
-    .prepare('SELECT id, reference, studentId, status, paymentStatus, priceAtTransaction FROM service_transactions WHERE id = ?')
+    .prepare('SELECT id, reference, studentId, status, paymentStatus, priceAtTransaction, details FROM service_transactions WHERE id = ?')
     .get(id) as
     | {
         id: string;
@@ -753,6 +861,7 @@ scolariteRouter.post('/scolarite/transactions/:id/correct', requireAuth, require
         status: string;
         paymentStatus: string;
         priceAtTransaction: number;
+        details: string;
       }
     | undefined;
 
@@ -766,8 +875,8 @@ scolariteRouter.post('/scolarite/transactions/:id/correct', requireAuth, require
   }
 
   const service = db
-    .prepare('SELECT id, name, price, isActive FROM services WHERE id = ?')
-    .get(serviceId.trim()) as { id: string; name: string; price: number; isActive: number } | undefined;
+    .prepare('SELECT id, code, name, price, isActive FROM services WHERE id = ?')
+    .get(serviceId.trim()) as { id: string; code: string; name: string; price: number; isActive: number } | undefined;
 
   if (!service || service.isActive !== 1) {
     res.status(400).json({ error: 'Le service de remplacement est invalide ou inactif.' });
@@ -779,58 +888,176 @@ scolariteRouter.post('/scolarite/transactions/:id/correct', requireAuth, require
   const replacementId = crypto.randomUUID();
   const isPaid = paymentConfirmed === true;
 
-  const replacement = runInTransaction(() => {
-    const nextPayStatus = original.paymentStatus === 'PAID' ? 'REFUNDED' : 'UNPAID';
-    db.prepare(
-      `UPDATE service_transactions
-       SET status = 'CANCELLED', paymentStatus = ?, cancelReason = ?, cancelledByUserId = ?, cancelledAt = ?, updatedAt = ?
-       WHERE id = ?`
-    ).run(nextPayStatus, `Correction: ${reason.trim()}`, req.user!.id, now, now, original.id);
+  try {
+    const replacement = runInTransaction(() => {
+      const nextPayStatus = original.paymentStatus === 'PAID' ? 'REFUNDED' : 'UNPAID';
+      db.prepare(
+        `UPDATE service_transactions
+         SET status = 'CANCELLED', paymentStatus = ?, cancelReason = ?, cancelledByUserId = ?, cancelledAt = ?, updatedAt = ?
+         WHERE id = ?`
+      ).run(nextPayStatus, `Correction: ${reason.trim()}`, req.user!.id, now, now, original.id);
+      cancelPaymentForTransaction(original.id, req.user!.id, now);
 
-    const replacementRef = generateTransactionReference(nowDate);
-    db.prepare(
-      `INSERT INTO service_transactions (
-         id, reference, idempotencyKey, studentId, serviceId, performedByUserId,
-         priceAtTransaction, status, paymentStatus, paymentConfirmedAt, paymentConfirmedByUserId,
-         notes, createdAt, updatedAt
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      replacementId,
-      replacementRef,
-      `corr-${original.id}-${Date.now()}`,
-      original.studentId,
-      service.id,
-      req.user!.id,
-      service.price,
-      isPaid ? 'COMPLETED' : 'PENDING',
-      isPaid ? 'PAID' : 'UNPAID',
-      isPaid ? now : null,
-      isPaid ? req.user!.id : null,
-      typeof notes === 'string' && notes.trim() ? notes.trim() : `Correction de ${original.reference}: ${reason.trim()}`,
-      now,
-      now
-    );
+      const replacementRef = generateTransactionReference(nowDate);
+      db.prepare(
+        `INSERT INTO service_transactions (
+           id, reference, idempotencyKey, studentId, serviceId, performedByUserId,
+           priceAtTransaction, status, paymentStatus, paymentConfirmedAt, paymentConfirmedByUserId,
+           notes, details, createdAt, updatedAt
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        replacementId,
+        replacementRef,
+        `corr-${original.id}-${Date.now()}`,
+        original.studentId,
+        service.id,
+        req.user!.id,
+        service.price,
+        isPaid ? 'COMPLETED' : 'PENDING',
+        isPaid ? 'PAID' : 'UNPAID',
+        isPaid ? now : null,
+        isPaid ? req.user!.id : null,
+        typeof notes === 'string' && notes.trim() ? notes.trim() : `Correction de ${original.reference}: ${reason.trim()}`,
+        original.details || '{}',
+        now,
+        now
+      );
 
-    logActivity(
-      req.user!.id,
-      'TRANSACTION_CORRECTED',
-      'SERVICE_TRANSACTION',
-      replacementId,
-      {
-        originalTransactionId: original.id,
-        originalReference: original.reference,
-        newReference: replacementRef,
-        reason: reason.trim(),
-        newServiceName: service.name,
-        newPrice: service.price,
-      },
-      now
-    );
+      logActivity(
+        req.user!.id,
+        'TRANSACTION_CORRECTED',
+        'SERVICE_TRANSACTION',
+        replacementId,
+        {
+          originalTransactionId: original.id,
+          originalReference: original.reference,
+          newReference: replacementRef,
+          reason: reason.trim(),
+          newServiceName: service.name,
+          newPrice: service.price,
+        },
+        now
+      );
 
-    return getHydratedTransactionById(replacementId);
-  });
+      if (isPaid) {
+        recordCashPayment(replacementId, service.price, req.user!.id, now);
+        createProductionRequest(replacementId, req.user!.id, now);
+      }
 
-  res.status(201).json({ transaction: replacement });
+      return getHydratedTransactionById(replacementId);
+    });
+
+    res.status(201).json({ transaction: replacement });
+  } catch (err) {
+    sendError(res, err, 'Erreur lors de la correction.');
+  }
+});
+
+/* -------------------------------------------------------------------------- */
+/* PRODUCTION REQUESTS                                                        */
+/* -------------------------------------------------------------------------- */
+
+const PRODUCTION_SELECT = `SELECT
+    pr.id, pr.transactionId, pr.documentType, pr.status, pr.requestedByUserId,
+    pr.generatedDocumentReference, pr.documentVersion,
+    pr.startedAt, pr.completedAt, pr.deliveredAt, pr.deliveredTo, pr.createdAt, pr.updatedAt,
+    t.reference AS transactionReference, t.status AS transactionStatus, t.paymentStatus,
+    t.priceAtTransaction, t.performedByUserId, t.details,
+    st.matricule AS studentMatricule, st.nom AS studentNom, st.prenom AS studentPrenom, st.promotion AS studentPromotion,
+    sv.name AS serviceName, sv.code AS serviceCode,
+    ru.fullName AS requestedByName,
+    su.fullName AS startedByName,
+    vu.fullName AS verifiedByName,
+    du.fullName AS deliveredByName
+  FROM production_requests pr
+  JOIN service_transactions t ON t.id = pr.transactionId
+  JOIN students st ON st.id = t.studentId
+  JOIN services sv ON sv.id = t.serviceId
+  JOIN users ru ON ru.id = pr.requestedByUserId
+  LEFT JOIN users su ON su.id = pr.startedByUserId
+  LEFT JOIN users vu ON vu.id = pr.verifiedByUserId
+  LEFT JOIN users du ON du.id = pr.deliveredByUserId`;
+
+function loadAccessibleProduction(req: AuthenticatedRequest, res: import('express').Response) {
+  const row = db.prepare(`${PRODUCTION_SELECT} WHERE pr.id = ?`).get(req.params.id) as
+    | { id: string; performedByUserId: string; transactionId: string }
+    | undefined;
+  if (!row) {
+    res.status(404).json({ error: 'Demande de production introuvable.' });
+    return null;
+  }
+  if (req.user!.role === 'AGENT' && row.performedByUserId !== req.user!.id) {
+    res.status(403).json({ error: 'Accès refusé à cette demande de production.' });
+    return null;
+  }
+  return hydrateTx(row) as { id: string; performedByUserId: string; transactionId: string };
+}
+
+scolariteRouter.get('/scolarite/production', requireAuth, (req: AuthenticatedRequest, res) => {
+  const filters = readFilters(req.query);
+  const where = buildTransactionWhere({ ...filters, status: undefined }, req.user!);
+  const rows = db
+    .prepare(`${PRODUCTION_SELECT} ${where.sql} ORDER BY pr.createdAt DESC LIMIT 250`)
+    .all(...where.params);
+  res.json({ productionRequests: rows.map(hydrateTx) });
+});
+
+scolariteRouter.get('/scolarite/production/:id', requireAuth, (req: AuthenticatedRequest, res) => {
+  const pr = loadAccessibleProduction(req, res);
+  if (!pr) return;
+  res.json({ productionRequest: pr });
+});
+
+scolariteRouter.get('/scolarite/production/:id/document', requireAuth, (req: AuthenticatedRequest, res) => {
+  const pr = loadAccessibleProduction(req, res);
+  if (!pr) return;
+  const row = db.prepare('SELECT documentSnapshot FROM production_requests WHERE id = ?').get(pr.id) as {
+    documentSnapshot: string | null;
+  };
+  if (!row.documentSnapshot) {
+    res.status(404).json({ error: 'Le document n’a pas encore été généré (production non démarrée).' });
+    return;
+  }
+  res.json({ document: safeParse(row.documentSnapshot) });
+});
+
+scolariteRouter.post('/scolarite/production/:id/status', requireAuth, (req: AuthenticatedRequest, res) => {
+  const pr = loadAccessibleProduction(req, res);
+  if (!pr) return;
+  const { status, verified, deliveredTo } = req.body ?? {};
+  if (!isProductionStatus(status)) {
+    res.status(400).json({ error: 'Statut de production invalide.' });
+    return;
+  }
+  try {
+    runInTransaction(() => {
+      transitionProduction(pr.id, status, req.user!.id, new Date().toISOString(), {
+        verified: verified === true,
+        deliveredTo: typeof deliveredTo === 'string' ? deliveredTo : undefined,
+      });
+    });
+  } catch (err) {
+    sendError(res, err, 'Changement de statut impossible.');
+    return;
+  }
+  res.json({ productionRequest: hydrateTx(db.prepare(`${PRODUCTION_SELECT} WHERE pr.id = ?`).get(pr.id)) });
+});
+
+scolariteRouter.post('/scolarite/production/:id/regenerate', requireAuth, (req: AuthenticatedRequest, res) => {
+  const pr = loadAccessibleProduction(req, res);
+  if (!pr) return;
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 300) : '';
+  if (reason.length < 3) {
+    res.status(400).json({ error: 'Un motif de régénération est obligatoire.' });
+    return;
+  }
+  try {
+    runInTransaction(() => regenerateDocument(pr.id, req.user!.id, new Date().toISOString(), reason));
+  } catch (err) {
+    sendError(res, err, 'Régénération impossible.');
+    return;
+  }
+  res.json({ productionRequest: hydrateTx(db.prepare(`${PRODUCTION_SELECT} WHERE pr.id = ?`).get(pr.id)) });
 });
 
 /* -------------------------------------------------------------------------- */
@@ -859,6 +1086,7 @@ scolariteRouter.get('/scolarite/dashboard/summary', requireAuth, requireSupervis
          COUNT(CASE WHEN t.status = 'CANCELLED' THEN 1 END) AS cancelledCount
        FROM service_transactions t
        JOIN students st ON st.id = t.studentId
+       LEFT JOIN production_requests pr ON pr.transactionId = t.id
        ${where.sql}`
     )
     .get(...where.params) as {
@@ -995,6 +1223,26 @@ scolariteRouter.get('/scolarite/dashboard/by-agent', requireAuth, requireSupervi
     .all(...params);
 
   res.json({ byAgent: rows });
+});
+
+scolariteRouter.get('/scolarite/dashboard/production-summary', requireAuth, requireSupervisor, (req: AuthenticatedRequest, res) => {
+  const filters = readFilters(req.query);
+  const where = buildTransactionWhere({ ...filters, status: undefined, productionStatus: undefined, search: undefined }, req.user!);
+  const extra = where.sql ? `${where.sql} AND t.status != 'CANCELLED'` : `WHERE t.status != 'CANCELLED'`;
+  const row = db
+    .prepare(
+      `SELECT
+         COUNT(CASE WHEN pr.status = 'A_PRODUIRE' THEN 1 END) AS toProduce,
+         COUNT(CASE WHEN pr.status = 'EN_PRODUCTION' THEN 1 END) AS inProduction,
+         COUNT(CASE WHEN pr.status = 'PRET' THEN 1 END) AS ready,
+         COUNT(CASE WHEN pr.status = 'REMIS' THEN 1 END) AS delivered
+       FROM production_requests pr
+       JOIN service_transactions t ON t.id = pr.transactionId
+       JOIN students st ON st.id = t.studentId
+       ${extra}`
+    )
+    .get(...where.params);
+  res.json({ productionSummary: row });
 });
 
 /* -------------------------------------------------------------------------- */

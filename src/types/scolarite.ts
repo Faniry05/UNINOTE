@@ -74,6 +74,14 @@ export interface ServiceTransaction {
   agentUsername: string;
   cancelledByName?: string | null;
   paymentConfirmedByName?: string | null;
+  details: Record<string, string>;
+  paymentId: string | null;
+  paymentRecordStatus: 'PAYE' | 'ANNULE' | null;
+  paymentMethod: 'CASH' | null;
+  paymentAmount: number | null;
+  productionId: string | null;
+  productionStatus: 'A_PRODUIRE' | 'EN_PRODUCTION' | 'PRET' | 'REMIS' | null;
+  documentReference: string | null;
 }
 
 export type DatePeriodFilter = 'today' | 'week' | 'month' | 'custom' | 'all';
@@ -85,6 +93,7 @@ export interface TransactionFilters {
   serviceId?: string;
   agentId?: string;
   status?: string;
+  productionStatus?: string;
   search?: string;
 }
 
@@ -137,4 +146,82 @@ export interface ActivityLogEntry {
   actorName: string;
   actorUsername: string;
   actorRole: UserRole;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Payments, production and documents                                         */
+/* -------------------------------------------------------------------------- */
+
+export type PaymentRecordStatus = 'PAYE' | 'ANNULE';
+
+export interface Payment {
+  id: string;
+  transactionId: string;
+  amount: number;
+  method: 'CASH';
+  status: PaymentRecordStatus;
+  receivedByUserId: string;
+  receivedByName: string;
+  paidAt: string;
+  cancelledAt: string | null;
+  cancelledByUserId: string | null;
+}
+
+export type ProductionStatus = 'A_PRODUIRE' | 'EN_PRODUCTION' | 'PRET' | 'REMIS';
+
+export interface ProductionRequest {
+  id: string;
+  transactionId: string;
+  documentType: string;
+  status: ProductionStatus;
+  requestedByUserId: string;
+  generatedDocumentReference: string | null;
+  documentVersion: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  deliveredAt: string | null;
+  deliveredTo: string | null;
+  createdAt: string;
+  updatedAt: string;
+  transactionReference: string;
+  transactionStatus: TransactionStatus;
+  paymentStatus: PaymentStatus;
+  priceAtTransaction: number;
+  performedByUserId: string;
+  details: Record<string, string>;
+  studentMatricule: string;
+  studentNom: string;
+  studentPrenom: string;
+  studentPromotion: string;
+  serviceName: string;
+  serviceCode: string;
+  requestedByName: string;
+  startedByName: string | null;
+  verifiedByName: string | null;
+  deliveredByName: string | null;
+}
+
+export interface GeneratedDocument {
+  templateVersion: number;
+  documentReference: string;
+  version: number;
+  documentType: string;
+  title: string;
+  institutionName: string;
+  generatedAt: string;
+  transactionReference: string;
+  student: { matricule: string; nom: string; prenom: string; promotion: string };
+  details: Record<string, string>;
+  grades: Array<{ semester: string; courseCode: string; courseName: string; credits: number; grade: number; status: string }>;
+}
+
+export interface ProductionSummary {
+  toProduce: number;
+  inProduction: number;
+  ready: number;
+  delivered: number;
+}
+
+export interface ProductionFilters extends TransactionFilters {
+  productionStatus?: ProductionStatus;
 }

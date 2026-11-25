@@ -44,3 +44,24 @@
   background: radial-gradient(circle at 88% 18%, rgba(255, 255, 255, 0.16), transparent 48%);
   pointer-events: none;
 }
+
+/* Printing a generated document: only the document sheet is printed. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

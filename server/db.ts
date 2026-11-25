@@ -2,13 +2,20 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { isDemoMode } from './config.ts';
 
-const dataDir = path.resolve(process.cwd(), 'data');
+// The demo mode uses its own database file so that fictitious data never
+// mixes with real data. UNINOTES_DB_PATH overrides both (used by the tests).
+const defaultDbFile = isDemoMode() ? 'uninotes-demo.db' : 'uninotes.db';
+export const dbPath = process.env.UNINOTES_DB_PATH
+  ? path.resolve(process.env.UNINOTES_DB_PATH)
+  : path.resolve(process.cwd(), 'data', defaultDbFile);
+
+const dataDir = path.dirname(dbPath);
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const dbPath = path.join(dataDir, 'uninotes.db');
 export const db = new DatabaseSync(dbPath);
 
 db.exec('PRAGMA foreign_keys = ON;');
@@ -97,7 +104,40 @@ export function initDatabase(): void {
       createdAt TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS payments (
+      id TEXT PRIMARY KEY,
+      transactionId TEXT NOT NULL UNIQUE REFERENCES service_transactions(id),
+      amount INTEGER NOT NULL CHECK(amount >= 0),
+      method TEXT NOT NULL DEFAULT 'CASH' CHECK(method IN ('CASH')),
+      status TEXT NOT NULL CHECK(status IN ('PAYE', 'ANNULE')),
+      receivedByUserId TEXT NOT NULL REFERENCES users(id),
+      paidAt TEXT NOT NULL,
+      cancelledAt TEXT DEFAULT NULL,
+      cancelledByUserId TEXT REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_requests (
+      id TEXT PRIMARY KEY,
+      transactionId TEXT NOT NULL UNIQUE REFERENCES service_transactions(id),
+      documentType TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('A_PRODUIRE', 'EN_PRODUCTION', 'PRET', 'REMIS')),
+      requestedByUserId TEXT NOT NULL REFERENCES users(id),
+      generatedDocumentReference TEXT DEFAULT NULL,
+      documentVersion INTEGER NOT NULL DEFAULT 0,
+      documentSnapshot TEXT DEFAULT NULL,
+      startedAt TEXT DEFAULT NULL,
+      startedByUserId TEXT REFERENCES users(id),
+      completedAt TEXT DEFAULT NULL,
+      verifiedByUserId TEXT REFERENCES users(id),
+      deliveredAt TEXT DEFAULT NULL,
+      deliveredByUserId TEXT REFERENCES users(id),
+      deliveredTo TEXT DEFAULT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_students_matricule ON students(matricule);
+    CREATE INDEX IF NOT EXISTS idx_production_status ON production_requests(status);
     CREATE INDEX IF NOT EXISTS idx_tx_created_at ON service_transactions(createdAt);
     CREATE INDEX IF NOT EXISTS idx_tx_service_id ON service_transactions(serviceId);
     CREATE INDEX IF NOT EXISTS idx_tx_performed_by ON service_transactions(performedByUserId);
@@ -105,7 +145,38 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_logs_created_at ON activity_logs(createdAt);
   `);
 
+  migrateSchema();
   seedInitialData();
+}
+
+/** Additive, idempotent migrations for databases created by earlier versions. */
+function migrateSchema(): void {
+  const txColumns = db.prepare('PRAGMA table_info(service_transactions)').all() as Array<{ name: string }>;
+  if (!txColumns.some((c) => c.name === 'details')) {
+    db.exec(`ALTER TABLE service_transactions ADD COLUMN details TEXT NOT NULL DEFAULT '{}'`);
+  }
+
+  // Backfill: every paid transaction gets its cash payment record and its
+  // production request, so older data follows the new workflow.
+  db.exec(`
+    INSERT INTO payments (id, transactionId, amount, method, status, receivedByUserId, paidAt, cancelledAt, cancelledByUserId)
+    SELECT lower(hex(randomblob(16))), t.id, t.priceAtTransaction, 'CASH',
+           CASE WHEN t.status = 'CANCELLED' THEN 'ANNULE' ELSE 'PAYE' END,
+           COALESCE(t.paymentConfirmedByUserId, t.performedByUserId),
+           COALESCE(t.paymentConfirmedAt, t.createdAt),
+           t.cancelledAt, t.cancelledByUserId
+    FROM service_transactions t
+    WHERE t.paymentConfirmedAt IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.transactionId = t.id);
+
+    INSERT INTO production_requests (id, transactionId, documentType, status, requestedByUserId, createdAt, updatedAt)
+    SELECT lower(hex(randomblob(16))), t.id, sv.code, 'A_PRODUIRE', t.performedByUserId,
+           COALESCE(t.paymentConfirmedAt, t.createdAt), COALESCE(t.paymentConfirmedAt, t.createdAt)
+    FROM service_transactions t
+    JOIN services sv ON sv.id = t.serviceId
+    WHERE t.paymentStatus = 'PAID'
+      AND NOT EXISTS (SELECT 1 FROM production_requests pr WHERE pr.transactionId = t.id);
+  `);
 }
 
 export function runInTransaction<T>(fn: () => T): T {
@@ -139,7 +210,7 @@ export function logActivity(
   ).run(crypto.randomUUID(), userId, action, entityType, entityId, JSON.stringify(metadata), now);
 }
 
-function seedInitialData(): void {
+export function seedInitialData(): void {
   const now = new Date().toISOString();
 
   const serviceCountRow = db.prepare('SELECT COUNT(*) AS count FROM services').get() as { count: number };
@@ -177,6 +248,9 @@ function seedInitialData(): void {
       insertService.run(s.id, s.code, s.name, s.description, s.price, 1, now, now);
     }
   }
+
+  // Fictitious students are only seeded in demo mode (see server/demo.ts).
+  if (!isDemoMode()) return;
 
   const studentCountRow = db.prepare('SELECT COUNT(*) AS count FROM students').get() as { count: number };
   if (studentCountRow.count === 0) {
