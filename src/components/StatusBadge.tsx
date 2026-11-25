@@ -29,7 +29,7 @@ export function TransactionStatusBadge({ status }: { status: TransactionStatus }
 export function PaymentStatusBadge({ paymentStatus }: { paymentStatus: PaymentStatus }) {
   if (paymentStatus === 'PAID') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-medium text-[#332E86] border border-indigo-200 whitespace-nowrap">
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-peach/70 px-2.5 py-1 text-xs font-medium text-ink border border-amber/40 whitespace-nowrap">
         <Banknote className="h-3.5 w-3.5 shrink-0" />
         Payé (espèces)
       </span>
@@ -37,7 +37,7 @@ export function PaymentStatusBadge({ paymentStatus }: { paymentStatus: PaymentSt
   }
   if (paymentStatus === 'REFUNDED') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 border border-slate-200 whitespace-nowrap">
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-panel px-2.5 py-1 text-xs font-medium text-ink/80 border border-ink/10 whitespace-nowrap">
         <AlertCircle className="h-3.5 w-3.5 shrink-0" />
         Paiement annulé
       </span>
@@ -62,12 +62,12 @@ const PRODUCTION_STYLES: Record<ProductionStatus, { cls: string; Icon: typeof Cl
   A_PRODUIRE: { cls: 'bg-amber-50 text-amber-800 border-amber-200', Icon: FileClock },
   EN_PRODUCTION: { cls: 'bg-sky-50 text-sky-800 border-sky-200', Icon: Hammer },
   PRET: { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', Icon: PackageCheck },
-  REMIS: { cls: 'bg-slate-100 text-slate-700 border-slate-200', Icon: HandHeart },
+  REMIS: { cls: 'bg-panel text-ink/80 border-ink/10', Icon: HandHeart },
 };
 
 export function ProductionStatusBadge({ status }: { status: ProductionStatus | null | undefined }) {
   if (!status) {
-    return <span className="text-xs text-slate-400 whitespace-nowrap">Pas de production</span>;
+    return <span className="text-xs text-ink/40 whitespace-nowrap">Pas de production</span>;
   }
   const { cls, Icon } = PRODUCTION_STYLES[status];
   return (

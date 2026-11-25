@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { GraduationCap, Lock, ShieldCheck, UserPlus, AlertCircle, FlaskConical } from 'lucide-react';
+import { Lock, ShieldCheck, UserPlus, AlertCircle, FlaskConical } from 'lucide-react';
 import { authService, type DemoAccount } from '../api/auth.service';
+import { LogoTile } from '../ui/LogoTile';
 import type { User } from '../types/scolarite';
 
 interface LoginScreenProps {
@@ -82,36 +83,37 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-      <div
-        className="pointer-events-none fixed inset-0 opacity-40"
-        style={{
-          background:
-            'radial-gradient(circle at 12% 14%, rgba(51, 46, 134, 0.14), transparent 42%), radial-gradient(circle at 86% 84%, rgba(51, 46, 134, 0.10), transparent 46%)',
-        }}
-      />
+    <div className="min-h-screen px-[15px] py-[14px] flex flex-col">
+      <div className="flex items-center gap-[9px]">
+        <LogoTile />
+        <div className="card h-[38px] rounded-xl px-3 flex items-center gap-2.5">
+          <span className="mono text-[12px] tracking-[-.12em] opacity-70">::</span>
+          <span className="text-[18px] leading-none">UniNotes</span>
+          <span className="h-2.5 w-2.5 rounded-full border-2 border-pin-orange" aria-hidden />
+        </div>
+      </div>
 
-      <div className="relative z-10 mx-auto w-full max-w-lg">
-        <div className="flex items-center justify-center gap-3 mb-7">
-          <div className="h-11 w-11 rounded-xl bg-[#332E86] text-white flex items-center justify-center shadow-sm">
-            <GraduationCap className="h-6 w-6" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">UniNotes</h1>
-            <p className="text-xs font-medium text-slate-500">Scolarité — Gestion des prestations</p>
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_440px] gap-8 items-end lg:items-center py-8 mx-auto w-full max-w-[1410px]">
+        <div>
+          <div className="scene-text font-mono-ref text-[12.6px]">UniNotes&nbsp;&nbsp;Université / Scolarité /</div>
+          <h1 className="scene-text scene-title mt-2">Service de la Scolarité</h1>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <span className="chip">Relevés · Attestations · Certifications</span>
+            <span className="chip">Paiement espèces</span>
           </div>
         </div>
 
+      <div className="w-full">
         <div className="glass-panel rounded-2xl p-6 sm:p-8">
           {needsSetup ? (
             <form onSubmit={handleSetup} className="space-y-5">
-              <div className="border-b border-slate-200/80 pb-4">
-                <div className="inline-flex items-center gap-2 text-xs font-semibold text-[#332E86] mb-1.5">
+              <div className="border-b border-ink/10 pb-4">
+                <div className="inline-flex items-center gap-2 text-xs font-medium text-ink mb-1.5">
                   <ShieldCheck className="h-4 w-4" />
                   Configuration initiale de la plateforme
                 </div>
-                <h2 className="text-lg font-semibold text-slate-900">Créer le compte Superviseur</h2>
-                <p className="text-sm text-slate-600 mt-1">
+                <h2 className="text-lg font-medium text-ink">Créer le compte Superviseur</h2>
+                <p className="text-sm text-ink/70 mt-1">
                   Aucun compte n’est encore configuré. Définissez le premier administrateur Scolarité (Superviseur).
                 </p>
               </div>
@@ -125,7 +127,7 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
 
               {hasEnvPasscode && (
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1.5" htmlFor="setup-passcode">
+                  <label className="block text-xs font-medium text-ink/80 mb-1.5" htmlFor="setup-passcode">
                     Code administrateur serveur
                   </label>
                   <input
@@ -134,7 +136,7 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
                     required
                     value={adminPasscode}
                     onChange={(e) => setAdminPasscode(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none focus:ring-2 focus:ring-[#332E86]/20"
+                    className="w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink focus:border-ink focus:outline-none focus:ring-2 focus:ring-ink/20"
                     placeholder="Code configuré dans ADMIN_PASSCODE"
                   />
                 </div>
@@ -142,7 +144,7 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1.5" htmlFor="sup-name">
+                  <label className="block text-xs font-medium text-ink/80 mb-1.5" htmlFor="sup-name">
                     Nom complet (Superviseur)
                   </label>
                   <input
@@ -152,11 +154,11 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
                     value={supFullName}
                     onChange={(e) => setSupFullName(e.target.value)}
                     placeholder="Ex. Dr. Raveloson"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none focus:ring-2 focus:ring-[#332E86]/20"
+                    className="w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink focus:border-ink focus:outline-none focus:ring-2 focus:ring-ink/20"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1.5" htmlFor="sup-user">
+                  <label className="block text-xs font-medium text-ink/80 mb-1.5" htmlFor="sup-user">
                     Identifiant
                   </label>
                   <input
@@ -166,13 +168,13 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
                     value={supUsername}
                     onChange={(e) => setSupUsername(e.target.value)}
                     placeholder="Ex. superviseur"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none focus:ring-2 focus:ring-[#332E86]/20"
+                    className="w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink focus:border-ink focus:outline-none focus:ring-2 focus:ring-ink/20"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1.5" htmlFor="sup-pass">
+                <label className="block text-xs font-medium text-ink/80 mb-1.5" htmlFor="sup-pass">
                   Mot de passe Superviseur (6 caractères min.)
                 </label>
                 <input
@@ -183,27 +185,27 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
                   value={supPassword}
                   onChange={(e) => setSupPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none focus:ring-2 focus:ring-[#332E86]/20"
+                  className="w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink focus:border-ink focus:outline-none focus:ring-2 focus:ring-ink/20"
                 />
               </div>
 
-              <div className="pt-2 border-t border-slate-200/80">
-                <label className="flex items-center gap-2.5 text-sm font-medium text-slate-800 cursor-pointer">
+              <div className="pt-2 border-t border-ink/10">
+                <label className="flex items-center gap-2.5 text-sm font-medium text-ink/90 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={createInitialAgent}
                     onChange={(e) => setCreateInitialAgent(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-[#332E86] focus:ring-[#332E86]"
+                    className="h-4 w-4 rounded border-ink/15 text-ink focus:ring-ink"
                   />
-                  <UserPlus className="h-4 w-4 text-[#332E86]" />
+                  <UserPlus className="h-4 w-4 text-ink" />
                   Créer aussi un compte Agent de guichet (optionnel)
                 </label>
 
                 {createInitialAgent && (
-                  <div className="mt-3.5 space-y-3 rounded-xl bg-slate-50/90 border border-slate-200 p-3.5">
+                  <div className="mt-3.5 space-y-3 rounded-xl bg-panel/60 border border-ink/10 p-3.5">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1" htmlFor="ag-name">
+                        <label className="block text-xs font-medium text-ink/80 mb-1" htmlFor="ag-name">
                           Nom complet (Agent)
                         </label>
                         <input
@@ -213,11 +215,11 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
                           value={agentFullName}
                           onChange={(e) => setAgentFullName(e.target.value)}
                           placeholder="Ex. Nomena Guichet"
-                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none"
+                          className="w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink focus:border-ink focus:outline-none"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1" htmlFor="ag-user">
+                        <label className="block text-xs font-medium text-ink/80 mb-1" htmlFor="ag-user">
                           Identifiant Agent
                         </label>
                         <input
@@ -227,12 +229,12 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
                           value={agentUsername}
                           onChange={(e) => setAgentUsername(e.target.value)}
                           placeholder="Ex. guichet1"
-                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none"
+                          className="w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink focus:border-ink focus:outline-none"
                         />
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1" htmlFor="ag-pass">
+                      <label className="block text-xs font-medium text-ink/80 mb-1" htmlFor="ag-pass">
                         Mot de passe Agent
                       </label>
                       <input
@@ -243,7 +245,7 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
                         value={agentPassword}
                         onChange={(e) => setAgentPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none"
+                        className="w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink focus:border-ink focus:outline-none"
                       />
                     </div>
                   </div>
@@ -253,7 +255,7 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full rounded-xl bg-[#332E86] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#28246b] disabled:opacity-60 transition-colors cursor-pointer"
+                className="w-full rounded-xl bg-ink px-4 py-3 text-sm font-medium text-white hover:bg-black disabled:opacity-60 transition-colors cursor-pointer"
               >
                 {submitting ? 'Initialisation en cours...' : 'Initialiser UniNotes et accéder'}
               </button>
@@ -261,9 +263,9 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
           ) : (
             <form onSubmit={handleLogin} className="space-y-5">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Connexion personnel Scolarité</h2>
-                <p className="text-sm text-slate-600 mt-1">
-                  Connectez-vous avec votre compte Superviseur ou Agent de guichet.
+                <h2 className="text-lg font-medium text-ink">Connexion personnel Scolarité</h2>
+                <p className="text-sm text-ink/70 mt-1">
+                  Connectez-vous avec votre compte Responsable ou Agent de guichet.
                 </p>
               </div>
 
@@ -275,7 +277,7 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
               )}
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1.5" htmlFor="login-username">
+                <label className="block text-xs font-medium text-ink/80 mb-1.5" htmlFor="login-username">
                   Identifiant
                 </label>
                 <input
@@ -286,12 +288,12 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Votre identifiant UniNotes"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none focus:ring-2 focus:ring-[#332E86]/20"
+                  className="w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink focus:border-ink focus:outline-none focus:ring-2 focus:ring-ink/20"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1.5" htmlFor="login-password">
+                <label className="block text-xs font-medium text-ink/80 mb-1.5" htmlFor="login-password">
                   Mot de passe
                 </label>
                 <div className="relative">
@@ -303,23 +305,23 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 pr-10 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none focus:ring-2 focus:ring-[#332E86]/20"
+                    className="w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 pr-10 text-sm text-ink focus:border-ink focus:outline-none focus:ring-2 focus:ring-ink/20"
                   />
-                  <Lock className="h-4 w-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <Lock className="h-4 w-4 text-ink/40 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
               </div>
 
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full rounded-xl bg-[#332E86] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#28246b] disabled:opacity-60 transition-colors cursor-pointer"
+                className="w-full rounded-xl bg-ink px-4 py-3 text-sm font-medium text-white hover:bg-black disabled:opacity-60 transition-colors cursor-pointer"
               >
                 {submitting ? 'Vérification...' : 'Se connecter'}
               </button>
 
               {demoAccounts.length > 0 && (
                 <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
+                  <div className="flex items-center gap-2 text-xs font-medium text-amber-900">
                     <FlaskConical className="h-4 w-4" />
                     Comptes de démonstration (mot de passe : {demoAccounts[0].password})
                   </div>
@@ -330,12 +332,12 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
                         type="button"
                         disabled={submitting}
                         onClick={() => loginAs(acc.username, acc.password)}
-                        className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-left hover:border-[#332E86]/50 disabled:opacity-60 cursor-pointer"
+                        className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-left hover:border-ink/50 disabled:opacity-60 cursor-pointer"
                       >
-                        <div className="text-xs font-semibold text-slate-900">
+                        <div className="text-xs font-medium text-ink">
                           {acc.role === 'SUPERVISOR' ? 'Responsable' : 'Agent guichet'}
                         </div>
-                        <div className="text-[11px] font-mono-ref text-slate-500">{acc.username}</div>
+                        <div className="text-[11px] font-mono-ref text-ink/60">{acc.username}</div>
                       </button>
                     ))}
                   </div>
@@ -344,6 +346,7 @@ export function LoginScreen({ needsSetup, hasEnvPasscode, demoAccounts = [], onA
             </form>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

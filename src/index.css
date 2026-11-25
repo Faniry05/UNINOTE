@@ -1,16 +1,47 @@
 @import "tailwindcss";
 
+/* -------------------------------------------------------------------------- */
+/* Design system — cream glass widgets floating over an alpine photo plate     */
+/* -------------------------------------------------------------------------- */
+@theme {
+  --font-sans: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-ink: #2e2d2a;
+  --color-cream: #f4f0e9;
+  --color-panel: #eae6de;
+  --color-amber: #f6b733;
+  --color-amber-light: #fbd06a;
+  --color-peach: #f8e8cd;
+  --color-pin-orange: #f59e0b;
+  --color-pin-violet: #7c6cf2;
+}
+
 @layer base {
   :root {
-    --uninotes-primary: #332e86;
-    --uninotes-primary-hover: #28246b;
+    --card: rgba(244, 240, 233, 0.94);
+    --ink: #2e2d2a;
+  }
+
+  html,
+  body {
+    background: #2e3b33;
   }
 
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background-color: #f4f6fb;
-    color: #0f172a;
+    font-family: var(--font-sans);
+    font-weight: 400;
+    color: var(--ink);
     font-feature-settings: "kern" 1;
+  }
+
+  ::selection {
+    background: #fbd06a;
+  }
+
+  input,
+  select,
+  textarea {
+    accent-color: #2e2d2a;
   }
 }
 
@@ -19,30 +50,216 @@
 }
 
 .font-mono-ref {
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
 }
 
-.glass-panel {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.78) 100%);
-  backdrop-filter: blur(18px) saturate(130%);
-  -webkit-backdrop-filter: blur(18px) saturate(130%);
-  border: 1px solid rgba(51, 46, 134, 0.11);
-  box-shadow: 0 8px 28px -12px rgba(15, 23, 42, 0.08);
+/* Cream glass card: no drop shadow, 14px backdrop blur. */
+.glass-panel,
+.card {
+  background: var(--card);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
-.glass-hero {
-  background: linear-gradient(135deg, #332e86 0%, #242066 55%, #19164b 100%);
-  position: relative;
-  overflow: hidden;
+.panel {
+  background: #eae6de;
+  border-radius: 12px;
 }
 
-.glass-hero::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 88% 18%, rgba(255, 255, 255, 0.16), transparent 48%);
-  pointer-events: none;
+/* Mono labels, chips, tabs and values. */
+.mono {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Card label with the tight "::" prefix. */
+.card-label {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+  color: #2e2d2a;
+}
+.card-label::before {
+  content: "::";
+  letter-spacing: -0.12em;
+  margin-right: 0.35em;
+  opacity: 0.7;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: rgba(248, 232, 205, 0.92);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12.5px;
+  color: #2e2d2a;
+  white-space: nowrap;
+}
+
+/* Tab bar (panel) with light-amber active tab. */
+.tabbar {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: #eae6de;
+  overflow-x: auto;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11.5px;
+  color: rgba(46, 45, 42, 0.72);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.tab:hover {
+  color: #2e2d2a;
+  background: rgba(255, 255, 255, 0.5);
+}
+.tab[data-active="true"] {
+  background: #fbd06a;
+  color: #2e2d2a;
+}
+
+/* White title and breadcrumb over the photo: only a faint text shadow. */
+.scene-text {
+  color: #fff;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.28);
+}
+.scene-title {
+  font-weight: 300;
+  letter-spacing: -0.045em;
+  line-height: 0.95;
+  font-size: clamp(46px, 6.67vw, 96px);
+}
+
+/* Amber-tint icon square (trail info style). */
+.icon-square {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(246, 183, 51, 0.22);
+  color: #2e2d2a;
+}
+
+/* Field inside a panel (search style). */
+.field {
+  width: 100%;
+  border-radius: 10px;
+  background: #eae6de;
+  border: 1px solid transparent;
+  padding: 9px 12px;
+  font-size: 14px;
+  color: #2e2d2a;
+  outline: none;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.field:focus {
+  border-color: #f6b733;
+  background: #f1ede6;
+}
+
+/* Inputs and selects already in the pages adopt the panel field look. */
+.card input:not([type="checkbox"]):not([type="radio"]),
+.card select,
+.card textarea,
+.glass-panel input:not([type="checkbox"]):not([type="radio"]),
+.glass-panel select,
+.glass-panel textarea {
+  background-color: #eae6de;
+  border-color: transparent;
+}
+.card input:focus,
+.card select:focus,
+.card textarea:focus,
+.glass-panel input:focus,
+.glass-panel select:focus,
+.glass-panel textarea:focus {
+  border-color: #f6b733;
+  --tw-ring-color: rgba(246, 183, 51, 0.25);
+}
+
+/* Primary action buttons. */
+.btn-ink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 12px;
+  background: #2e2d2a;
+  color: #f4f0e9;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12.5px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background-color 0.15s, transform 0.15s;
+}
+.btn-ink:hover:not(:disabled) {
+  background: #000;
+}
+.btn-ink:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-amber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 12px;
+  background: #fbd06a;
+  color: #2e2d2a;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12.5px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.btn-amber:hover:not(:disabled) {
+  background: #f6b733;
+}
+
+.grow-hover {
+  transition: transform 0.18s ease;
+}
+.grow-hover:hover {
+  transform: scale(1.08);
+}
+
+/* Modal dim layer over the scene. */
+.backdrop-xs {
+  backdrop-filter: blur(4px);
 }
 
 /* Printing a generated document: only the document sheet is printed. */
@@ -63,5 +280,14 @@
   }
   .no-print {
     display: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
   }
 }

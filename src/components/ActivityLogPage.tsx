@@ -35,12 +35,12 @@ export function ActivityLogPage() {
   }, [loadLogs]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div className="space-y-[9px]">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pb-2">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-[#332E86]">Traçabilité &amp; Contrôle</p>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 mt-0.5">Journal d’audit</h1>
-          <p className="text-sm text-slate-600 mt-1">
+          <div data-enter="fade" className="scene-text font-mono-ref text-[12.6px]">UniNotes&nbsp;&nbsp;Scolarité / Historique /</div>
+          <h1 data-enter="blur" className="scene-text scene-title mt-2">Historique</h1>
+          <p data-enter="fade" className="scene-text text-[14px] mt-3 max-w-2xl">
             Historique infalsifiable des opérations guichet, modifications tarifaires, annulations et corrections.
           </p>
         </div>
@@ -48,23 +48,23 @@ export function ActivityLogPage() {
         <button
           type="button"
           onClick={() => loadLogs()}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 self-start cursor-pointer"
+          className="card h-[38px] rounded-xl px-3 inline-flex items-center gap-2 mono text-[11px] hover:bg-amber-light self-start sm:self-auto cursor-pointer"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           Actualiser
         </button>
       </div>
 
-      <div className="glass-panel rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div data-enter="rise" className="glass-panel rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1" htmlFor="log-entity">
+          <label className="block text-xs font-medium text-ink/70 mb-1" htmlFor="log-entity">
             Type d’entité
           </label>
           <select
             id="log-entity"
             value={entityFilter}
             onChange={(e) => setEntityFilter(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none"
+            className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm text-ink focus:border-ink focus:outline-none"
           >
             <option value="ALL">Toutes les entités</option>
             <option value="SERVICE_TRANSACTION">Transactions de service</option>
@@ -76,14 +76,14 @@ export function ActivityLogPage() {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1" htmlFor="log-action">
+          <label className="block text-xs font-medium text-ink/70 mb-1" htmlFor="log-action">
             Action
           </label>
           <select
             id="log-action"
             value={actionFilter}
             onChange={(e) => setActionFilter(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-[#332E86] focus:outline-none"
+            className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm text-ink focus:border-ink focus:outline-none"
           >
             <option value="ALL">Toutes les actions</option>
             {Object.entries(ACTION_LABELS).map(([key, label]) => (
@@ -102,16 +102,16 @@ export function ActivityLogPage() {
         </div>
       )}
 
-      <div className="glass-panel rounded-2xl overflow-hidden">
+      <div data-enter="rise" className="glass-panel rounded-2xl overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-sm text-slate-500">Chargement du journal...</div>
+          <div className="p-8 text-center text-sm text-ink/60">Chargement du journal...</div>
         ) : logs.length === 0 ? (
-          <div className="p-10 text-center text-sm text-slate-500">Aucune entrée d’audit trouvée.</div>
+          <div className="p-10 text-center text-sm text-ink/60">Aucune entrée d’audit trouvée.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-600">
+                <tr className="border-b border-ink/10 bg-panel/60 text-xs font-medium text-ink/70">
                   <th className="py-3 px-4">Date &amp; Heure</th>
                   <th className="py-3 px-4">Acteur</th>
                   <th className="py-3 px-4">Action</th>
@@ -119,28 +119,28 @@ export function ActivityLogPage() {
                   <th className="py-3 px-4">Métadonnées</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
+              <tbody className="divide-y divide-ink/10 text-sm">
                 {logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50/70 align-top">
-                    <td className="py-3 px-4 text-xs text-slate-600 tabular-nums whitespace-nowrap">
+                  <tr key={log.id} className="hover:bg-panel/60 align-top">
+                    <td className="py-3 px-4 text-xs text-ink/70 tabular-nums whitespace-nowrap">
                       {formatDateTime(log.createdAt)}
                     </td>
                     <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="font-medium text-slate-900">{log.actorName}</div>
-                      <div className="text-xs text-slate-500">
+                      <div className="font-medium text-ink">{log.actorName}</div>
+                      <div className="text-xs text-ink/60">
                         @{log.actorUsername} · {log.actorRole === 'SUPERVISOR' ? 'Superviseur' : 'Agent'}
                       </div>
                     </td>
                     <td className="py-3 px-4 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-800 border border-slate-200">
-                        <ShieldAlert className="h-3.5 w-3.5 text-[#332E86]" />
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-panel px-2.5 py-1 text-xs font-medium text-ink/90 border border-ink/10">
+                        <ShieldAlert className="h-3.5 w-3.5 text-ink" />
                         {ACTION_LABELS[log.action] ?? log.action}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-xs font-mono-ref text-slate-600 whitespace-nowrap">
+                    <td className="py-3 px-4 text-xs font-mono-ref text-ink/70 whitespace-nowrap">
                       {log.entityType}
                     </td>
-                    <td className="py-3 px-4 text-xs text-slate-700 font-mono-ref break-all max-w-md">
+                    <td className="py-3 px-4 text-xs text-ink/80 font-mono-ref break-all max-w-md">
                       {Object.entries(log.metadata)
                         .map(([k, v]) => `${k}: ${String(v)}`)
                         .join(' · ')}

@@ -32,23 +32,23 @@ export function DocumentPreview({ productionId, onClose }: DocumentPreviewProps)
   }, [productionId]);
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-900/55 backdrop-blur-xs p-4" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-ink/55 backdrop-xs p-4" role="dialog" aria-modal="true">
       <div className="w-full max-w-3xl my-6 space-y-3">
-        <div className="no-print flex items-center justify-between rounded-xl bg-white px-4 py-2.5 shadow">
-          <div className="text-sm font-semibold text-slate-900">
-            Document généré {doc && <span className="font-mono-ref text-[#332E86] ml-1">{doc.documentReference}</span>}
+        <div className="no-print flex items-center justify-between rounded-xl bg-white px-4 py-2.5">
+          <div className="text-sm font-medium text-ink">
+            Document généré {doc && <span className="font-mono-ref text-ink ml-1">{doc.documentReference}</span>}
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               disabled={!doc}
               onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#332E86] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#28246b] disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-xs font-medium text-white hover:bg-black disabled:opacity-50 cursor-pointer"
             >
               <Printer className="h-3.5 w-3.5" />
               Imprimer / PDF
             </button>
-            <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 cursor-pointer" aria-label="Fermer">
+            <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-ink/60 hover:bg-panel cursor-pointer" aria-label="Fermer">
               <X className="h-5 w-5" />
             </button>
           </div>
@@ -61,7 +61,7 @@ export function DocumentPreview({ productionId, onClose }: DocumentPreviewProps)
           </div>
         )}
         {!doc && !error && (
-          <div className="no-print flex items-center justify-center gap-2 rounded-xl bg-white p-10 text-sm text-slate-600">
+          <div className="no-print flex items-center justify-center gap-2 rounded-xl bg-white p-10 text-sm text-ink/70">
             <Loader2 className="h-4 w-4 animate-spin" /> Chargement du document...
           </div>
         )}
@@ -76,26 +76,26 @@ function DocumentSheet({ doc }: { doc: GeneratedDocument }) {
   const year = doc.details.academicYear;
 
   return (
-    <article className="print-area relative overflow-hidden rounded-xl bg-white px-10 py-12 shadow-xl text-slate-900" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
+    <article className="print-area relative overflow-hidden rounded-xl bg-white px-10 py-12 text-ink" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
       {isDemoMode() && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden>
-          <span className="rotate-[-28deg] text-7xl font-bold tracking-widest text-rose-500/15">SPÉCIMEN — DÉMO</span>
+          <span className="rotate-[-28deg] text-7xl font-medium tracking-widest text-rose-500/15">SPÉCIMEN — DÉMO</span>
         </div>
       )}
 
-      <header className="flex items-start justify-between border-b-2 border-[#332E86] pb-4">
+      <header className="flex items-start justify-between border-b-2 border-ink pb-4">
         <div>
-          <div className="text-lg font-bold uppercase tracking-wide text-[#332E86]">{doc.institutionName}</div>
-          <div className="text-sm text-slate-600">Service de la Scolarité — UniNotes</div>
+          <div className="text-lg font-medium uppercase tracking-wide text-ink">{doc.institutionName}</div>
+          <div className="text-sm text-ink/70">Service de la Scolarité — UniNotes</div>
         </div>
-        <div className="text-right text-xs text-slate-600" style={{ fontFamily: 'ui-monospace, monospace' }}>
+        <div className="text-right text-xs text-ink/70" style={{ fontFamily: 'ui-monospace, monospace' }}>
           <div>N° {doc.documentReference}</div>
           <div>Version {doc.version}</div>
           <div>Transaction {doc.transactionReference}</div>
         </div>
       </header>
 
-      <h1 className="mt-10 text-center text-2xl font-bold uppercase tracking-[0.2em]">{documentHeading(doc)}</h1>
+      <h1 className="mt-10 text-center text-2xl font-medium uppercase tracking-[0.2em]">{documentHeading(doc)}</h1>
 
       <section className="mt-10 space-y-4 text-[15px] leading-relaxed">
         {doc.documentType === 'ATTESTATION' && (
@@ -131,13 +131,13 @@ function DocumentSheet({ doc }: { doc: GeneratedDocument }) {
       </section>
 
       <footer className="mt-16 flex items-end justify-between text-sm">
-        <div className="text-xs text-slate-500" style={{ fontFamily: 'ui-monospace, monospace' }}>
+        <div className="text-xs text-ink/60" style={{ fontFamily: 'ui-monospace, monospace' }}>
           Généré le {formatDateTime(doc.generatedAt)}
         </div>
         <div className="text-center">
           <div>Fait le {formatDateShort(doc.generatedAt)}</div>
-          <div className="mt-1 font-semibold">Le Responsable de la Scolarité</div>
-          <div className="mt-14 text-xs text-slate-500">(Signature et cachet)</div>
+          <div className="mt-1 font-medium">Le Responsable de la Scolarité</div>
+          <div className="mt-14 text-xs text-ink/60">(Signature et cachet)</div>
         </div>
       </footer>
     </article>
@@ -187,7 +187,7 @@ function TranscriptBody({ doc }: { doc: GeneratedDocument }) {
           </thead>
           <tbody>
             {doc.grades.map((g) => (
-              <tr key={`${g.semester}-${g.courseCode}`} className="border-b border-slate-200">
+              <tr key={`${g.semester}-${g.courseCode}`} className="border-b border-ink/10">
                 <td className="py-1.5 pr-2">{g.semester}</td>
                 <td className="py-1.5 pr-2">{g.courseCode}</td>
                 <td className="py-1.5 pr-2">{g.courseName}</td>
@@ -198,7 +198,7 @@ function TranscriptBody({ doc }: { doc: GeneratedDocument }) {
             ))}
           </tbody>
           <tfoot>
-            <tr className="border-t border-slate-400 font-semibold">
+            <tr className="border-t border-slate-400 font-medium">
               <td colSpan={3} className="py-1.5">Total / Moyenne pondérée</td>
               <td className="py-1.5 pr-2 text-right tabular-nums">{totalCredits}</td>
               <td className="py-1.5 pr-2 text-right tabular-nums">{average !== null ? average.toFixed(2) : '—'}</td>
